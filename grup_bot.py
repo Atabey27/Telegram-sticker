@@ -31,8 +31,7 @@ izin_sureleri = {eval(k): v for k, v in load_json(IZIN_FILE, {}).items()}
 yetkili_adminler = set(load_json(ADMINS_FILE, [admin_id]))
 max_grant = 2
 
-app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
-
+app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
 def is_authorized(user_id: int): return user_id in yetkili_adminler
 
 @app.on_message(filters.command("giveme") & filters.user(admin_id))
