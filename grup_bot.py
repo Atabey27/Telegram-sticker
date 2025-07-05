@@ -61,6 +61,10 @@ def is_authorized(user_id: int): return user_id in yetkili_adminler
 
 @app.on_message(filters.command("start"))
 async def start(_, msg: Message):
+    await msg.reply("👋 Merhaba! Komutlar için `/menu` yazabilirsiniz.")
+
+@app.on_message(filters.command("menu"))
+async def menu(_, msg: Message):
     butonlar = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
@@ -74,7 +78,7 @@ async def buton_yanitla(_, cb: CallbackQuery):
     if data == "help":
         butonlar = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         await cb.message.edit_text(
-            "**🆘 Yardım Menüsü:**\n\n"
+            "**📖 Yardım Menüsü:**\n\n"
             "🔹 `/seviyeayar` - 🧱 Seviye mesaj/süre ayarı yapar.\n"
             "🔹 `/hakayarla` - 🎯 Günlük medya izni adedini belirler.\n"
             "🔹 `/seviyelistesi` - 📊 Tüm seviyeleri listeler.\n"
@@ -97,7 +101,13 @@ async def buton_yanitla(_, cb: CallbackQuery):
     elif data == "settings":
         await cb.message.edit_text("⚙️ Ayarlar menüsü şu an geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "geri":
-        await start(_, cb.message)
+        await cb.message.delete()
+        butonlar = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
+            [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
+            [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
+        ])
+        await cb.message.chat.send_message("👋 Merhaba! Ne yapmak istersin?", reply_markup=butonlar)
 
 @app.on_message(filters.command("seviyeayar"))
 async def set_limit(_, msg):
@@ -244,7 +254,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             await app.send_message(cmu.chat.id,
                 "👋 Merhaba! Ben bu grubun aktiflik takip botuyum.\n"
                 "Mesaj atan kullanıcılar seviye atlar ve kısa süreli medya izni kazanır.\n"
-                "ℹ️ Yardım için /start komutunu kullanabilirsin.\n\n"
+                "ℹ️ Komutlar için `/menu` yazabilirsin.\n\n"
                 "🛠 *Geliştirici:* @Atabey27"
             )
 
