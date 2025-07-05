@@ -1,19 +1,11 @@
 from pyrogram import Client, filters
 from pyrogram.types import (
-    ChatPermissions,
-    Message,
-    ChatMemberUpdated,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    CallbackQuery,
+    ChatPermissions, Message, ChatMemberUpdated,
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 )
 from collections import defaultdict
 from datetime import datetime
-import asyncio
-import time
-import json
-import os
-import re
+import asyncio, time, json, os, re
 from dotenv import load_dotenv
 
 def convert_keys_to_str(d: dict) -> dict:
@@ -33,7 +25,6 @@ def parse_sure(s: str) -> int:
     return total_seconds
 
 load_dotenv()
-
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
@@ -64,7 +55,7 @@ async def menu(_, msg: Message):
     butonlar = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
-        [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
+        [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")]
     ])
     await msg.reply("👋 Merhaba! Ne yapmak istersin?", reply_markup=butonlar)
 
@@ -210,7 +201,6 @@ async def takip_et(_, msg):
         user_msg_count[key] = 0
 
     if now < izin_sureleri.get(key, 0): return
-
     user_msg_count[key] += 1
 
     for seviye in sorted(limits.keys()):
@@ -223,30 +213,25 @@ async def takip_et(_, msg):
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
             izin_ver = ChatPermissions(
-    can_send_messages=True,
-    can_send_stickers=True,
-    can_send_animations=True
+                can_send_messages=True,
+                can_send_stickers=True,
+                can_send_animations=True
+            )
 
-)
+            izin_kisitla = ChatPermissions(
+                can_send_messages=True,
+                can_send_stickers=False,
+                can_send_animations=False
+            )
 
-izin_kisitla = ChatPermissions(
-    can_send_messages=True,
-    can_send_stickers=False,
-    can_send_animations=False
-)
-
-try:
-    await app.restrict_chat_member(
-        msg.chat.id, msg.from_user.id, izin_ver
-    )
-    await asyncio.sleep(lim["izin"])
-    await app.restrict_chat_member(
-        msg.chat.id, msg.from_user.id, izin_kisitla
-    )
-    await msg.reply("⏳ Medya iznin sona erdi.")
-except Exception as e:
-    print("HATA:", e)
-    await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
+            try:
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
+                await asyncio.sleep(lim["süre"])
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_kisitla)
+                await msg.reply("⏳ Medya iznin sona erdi.")
+            except Exception as e:
+                print("HATA:", e)
+                await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
 
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
@@ -256,7 +241,8 @@ except Exception as e:
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     if cmu.new_chat_member and cmu.new_chat_member.user.is_bot:
         if cmu.new_chat_member.user.id == (await app.get_me()).id:
-            await app.send_message(cmu.chat.id,
+            await app.send_message(
+                cmu.chat.id,
                 "👋 Merhaba! Ben bu grubun aktiflik takip botuyum.\n"
                 "Mesaj atan kullanıcılar seviye atlar ve kısa süreli medya izni kazanır.\n"
                 "ℹ️ Komutlar için /menu yazabilirsin.\n\n"
