@@ -235,14 +235,18 @@ izin_kisitla = ChatPermissions(
     can_send_animations=False
 )
 
-            try:
-                await app.restrict_chat_member(cid, uid, izin_ver)
-                await asyncio.sleep(lim["süre"])
-                await app.restrict_chat_member(cid, uid, izin_kisitla)
-                await msg.reply("⌛️ Medya iznin sona erdi.")
-            except Exception as e:
-                print("HATA:", e)
-                await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
+try:
+    await app.restrict_chat_member(
+        msg.chat.id, msg.from_user.id, izin_ver
+    )
+    await asyncio.sleep(lim["izin"])
+    await app.restrict_chat_member(
+        msg.chat.id, msg.from_user.id, izin_kisitla
+    )
+    await msg.reply("⏳ Medya iznin sona erdi.")
+except Exception as e:
+    print("HATA:", e)
+    await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
 
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
