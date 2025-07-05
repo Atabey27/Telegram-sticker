@@ -1,6 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import ChatPermissions, Message, ChatMemberUpdated
-from collections import defaultdict
+from pyrogram.types import ChatPermissions, Message, ChatMemberUpdated, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 import asyncio
 import time
@@ -12,7 +11,6 @@ def convert_keys_to_str(d: dict) -> dict:
     return {str(k): v for k, v in d.items()}
 
 load_dotenv()
-
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
@@ -60,52 +58,36 @@ async def remove_admin(_, msg: Message):
     save_json(ADMINS_FILE, list(yetkili_adminler))
     await msg.reply(f"🚫 `{uid}` ID'li kullanıcının yetkisi kaldırıldı.")
 
-@app.on_message(filters.command("yardim"))
-async def yardim_komutu(_, msg):
-    await msg.reply(
-        "**📚 KOMUT YARDIMI**\n\n"
-        "╭─🛠️ **YÖNETİCİ KOMUTLARI**\n"
-        "│\n"
-        "├─ 🧱 `/seviye_ayar [seviye] [mesaj] [süre]`\n"
-        "│ ⤷ Kullanıcının belirtilen seviyeye ulaşması için gereken mesaj sayısı ve süreyi ayarlar.\n"
-        "│\n"
-        "├─ 🎁 `/kalan_hak [adet]`\n"
-        "│ ⤷ Günlük kaç kez ödül verileceğini belirler.\n"
-        "│\n"
-        "├─ 📋 `/seviye_listesi`\n"
-        "│ ⤷ Mevcut tüm seviye ve ödül ayarlarını listeler.\n"
-        "│\n"
-        "├─ 🧹 `/verileri_sil`\n"
-        "│ ⤷ Tüm kullanıcı verilerini sıfırlar. (Geri alınamaz!)\n"
-        "│\n"
-        "├─ 🟢 `/yetkiver @kullanici`\n"
-        "│ ⤷ Belirtilen kullanıcıya yönetici komutu izni verir.\n"
-        "│\n"
-        "├─ 🔴 `/yetkial @kullanici`\n"
-        "│ ⤷ Kullanıcının yetkisini geri alır.\n"
-        "╰─────────────────────────────\n\n"
-        "╭─👥 **KULLANICI KOMUTLARI**\n"
-        "│\n"
-        "├─ 📊 `/durumum`\n"
-        "│ ⤷ Kaç mesaj attın, hangi seviyedesin, ödül hakkın kaldı mı?\n"
-        "│\n"
-        "├─ ℹ️ `/bilgi`\n"
-        "│ ⤷ Botun ne işe yaradığını ve nasıl çalıştığını öğren.\n"
-        "╰─────────────────────────────\n\n"
-        "🔔 *Komutlar sadece grup içinde çalışır.*\n"
-        "👨‍💻 *Geliştirici:* @Atabey27"
-    )
+@app.on_message(filters.command("yardım"))
+async def help_cmd(_, msg):
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔧 Seviye Ayar", callback_data="seviyeayar")],
+        [InlineKeyboardButton("📊 Seviye Listesi", callback_data="seviyelistesi")],
+        [InlineKeyboardButton("♻️ Verileri Sil", callback_data="verilerisil")],
+        [InlineKeyboardButton("🔐 Yetki Ver", callback_data="yetkiver")],
+        [InlineKeyboardButton("❌ Yetki Kaldır", callback_data="yetkial")],
+        [InlineKeyboardButton("👤 Durumum", callback_data="durumum")],
+        [InlineKeyboardButton("ℹ️ Hakkında", callback_data="hakkinda")]
+    ])
+    await msg.reply("📌 Lütfen bilgi almak istediğin seçeneği tıkla:", reply_markup=buttons)
 
-@app.on_message(filters.command("bilgi"))
-async def about_info(_, msg):
-    await msg.reply(
-        "🤖 **Bu bot, grup içi kullanıcı aktifliğini takip eder.**\n"
-        "Mesaj atan kullanıcılar seviye atlayarak sınırlı süreli sticker/GIF izni kazanır.\n\n"
-        "**🛠 Geliştirici:** @Atabey27\n"
-        "🔧 Bot açık kaynaklıdır ve sürekli geliştirilir."
-    )
+@app.on_callback_query()
+async def yardım_butonu(_, query):
+    yanitlar = {
+        "seviyeayar": "🔧 `/seviyeayar [seviye] [mesaj] [süre]`\nBir seviyeye ulaşmak için gereken mesaj sayısı ve izin süresi ayarlanır.",
+        "seviyelistesi": "📊 `/seviyelistesi`\nTüm seviye ayarlarını listeler.",
+        "verilerisil": "♻️ `/verilerisil`\nTüm kullanıcı verileri sıfırlanır.",
+        "yetkiver": "🔐 `/yetkiver @kullanici`\nBelirli kullanıcıya bot komutu kullanma yetkisi verir.",
+        "yetkial": "❌ `/yetkial @kullanici`\nKullanıcının yetkisini kaldırır.",
+        "durumum": "👤 `/durumum`\nKendi seviyeni, mesaj durumunu ve kalan hakkını gösterir.",
+        "hakkinda": "ℹ️ `/hakkinda`\nBot hakkında bilgi ve geliştirici detayları gösterilir."
+    }
+    data = query.data
+    metin = yanitlar.get(data, "⚠️ Tanımsız işlem.")
+    await query.answer()
+    await query.message.edit_text(metin, reply_markup=None)
 
-@app.on_message(filters.command("seviye_ayar"))
+@app.on_message(filters.command("seviyeayar"))
 async def set_limit(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
@@ -114,9 +96,9 @@ async def set_limit(_, msg):
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
     except:
-        await msg.reply("⚠️ Kullanım: /seviye_ayar [seviye] [mesaj] [süre]")
+        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre]")
 
-@app.on_message(filters.command("kalan_hak"))
+@app.on_message(filters.command("kalanhak"))
 async def set_grant(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
@@ -124,51 +106,50 @@ async def set_grant(_, msg):
         max_grant = int(msg.text.split()[1])
         await msg.reply(f"✅ Günlük hak: {max_grant}")
     except:
-        await msg.reply("⚠️ Kullanım: /kalan_hak [adet]")
+        await msg.reply("⚠️ Kullanım: /kalanhak [adet]")
 
-@app.on_message(filters.command("seviye_listesi"))
+@app.on_message(filters.command("seviyelistesi"))
 async def list_limits(_, msg):
     if not is_authorized(msg.from_user.id): return
     if not limits:
-        await msg.reply("⚠️ Hiç limit ayarlanmamış.")
+        await msg.reply("⚠️ Henüz hiç seviye ayarı yapılmamış.")
         return
-    text = "📋 **Seviye Limitleri:**\n"
+    text = "📋 **Seviye Listesi:**\n"
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
-        text += f"🔹 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn\n"
+        text += f"🔹 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn izin\n"
     await msg.reply(text)
 
-@app.on_message(filters.command("verileri_sil"))
+@app.on_message(filters.command("verilerisil"))
 async def reset_all(_, msg):
     if not is_authorized(msg.from_user.id): return
     user_data.clear(); user_msg_count.clear(); izin_sureleri.clear()
     save_json(USERDATA_FILE, convert_keys_to_str(user_data))
     save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
-    await msg.reply("✅ Tüm veriler sıfırlandı.")
+    await msg.reply("✅ Tüm kullanıcı verileri silindi.")
 
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
     key = f"({cid}, {uid})"
     if key not in user_data:
-        await msg.reply("ℹ️ Kayıtlı verin yok.")
+        await msg.reply("ℹ️ Henüz kayıtlı verin bulunamadı.")
         return
     veri = user_data[key]
     seviye = veri["seviye"]
-    kalan_hak = max_grant - veri["grant_count"]
     if seviye not in limits:
-        await msg.reply("ℹ️ Seviyen tanımlı değil.")
+        await msg.reply("ℹ️ Seviyen ayarlanmamış.")
         return
     gereken = limits[seviye]["msg"]
     atilan = user_msg_count.get(key, 0)
     kalan = max(0, gereken - atilan)
     await msg.reply(
-        f"📊 **Durumun:**\n"
+        f"👤 **Durum Bilgin:**\n"
         f"🔹 Seviye: {seviye}\n"
-        f"📝 Mesaj: {atilan}/{gereken}\n"
-        f"⏳ Kalan: {kalan}\n"
-        f"🎁 Günlük hak: {veri['grant_count']}/{max_grant}"
+        f"📨 Mesaj Sayısı: {atilan}/{gereken}\n"
+        f"⏳ Kalan: {kalan} mesaj\n"
+        f"🎁 Kalan Günlük Hak: {veri['grant_count']}/{max_grant}"
     )
 
 @app.on_message(filters.group & ~filters.service)
@@ -182,9 +163,7 @@ async def takip_et(_, msg):
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[key] = 0
 
-    if now < izin_sureleri.get(key, 0):
-        return
-
+    if now < izin_sureleri.get(key, 0): return
     user_msg_count[key] += 1
 
     for seviye in sorted(limits.keys()):
@@ -194,11 +173,9 @@ async def takip_et(_, msg):
             user_data[key]["grant_count"] += 1
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
-            await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn izin verildi.")
-
-            izin_ver = ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True, can_change_info=False, can_invite_users=True, can_pin_messages=False)
-            izin_kisitla = ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_polls=True, can_send_other_messages=False, can_add_web_page_previews=True, can_change_info=False, can_invite_users=True, can_pin_messages=False)
-
+            await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn sticker/GIF izni verildi.")
+            izin_ver = ChatPermissions(can_send_other_messages=True)
+            izin_kisitla = ChatPermissions(can_send_other_messages=False)
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
@@ -206,11 +183,19 @@ async def takip_et(_, msg):
                 await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
                 print("HATA:", e)
-                await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
-
+                await msg.reply("❌ Telegram izinleri uygulanamadı. (bot admin mi?)")
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
             save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+
+@app.on_message(filters.command("hakkinda"))
+async def about_info(_, msg):
+    await msg.reply(
+        "🤖 **Aktiflik Takip Botu**\n"
+        "Kullanıcıların mesaj sayılarına göre seviye atlamasını sağlar ve onlara kısa süreli sticker/GIF izni tanır.\n\n"
+        "🧠 Otomatik takip sistemi\n"
+        "🛠 Geliştirici: @Atabey27"
+    )
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
@@ -219,10 +204,9 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             await app.send_message(cmu.chat.id,
                 "👋 Merhaba! Ben bu grubun aktiflik takip botuyum.\n"
                 "Mesaj atan kullanıcılar seviye atlar ve kısa süreli sticker/GIF izni kazanır.\n"
-                "ℹ️ Yardım için /yardim komutunu kullanabilirsin.\n\n"
-                "🛠 *Geliştirici:* @Atabey27"
+                "ℹ️ Yardım için /yardım komutunu kullanabilirsin."
             )
 
-print("🚀 Bot başlıyor...")
+print("🚀 Bot başlatılıyor...")
 app.run()
-print("❌ Bot durdu.")
+print("❌ Bot durduruldu.")
