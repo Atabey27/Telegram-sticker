@@ -7,8 +7,10 @@ import time
 import json
 import os
 from dotenv import load_dotenv
+
 def convert_keys_to_str(d: dict) -> dict:
     return {str(k): v for k, v in d.items()}
+
 load_dotenv()
 
 api_id = int(os.getenv("API_ID"))
@@ -38,8 +40,9 @@ def is_authorized(user_id: int): return user_id in yetkili_adminler
 @app.on_message(filters.command("giveme") & filters.user(admin_id))
 async def add_admin(_, msg: Message):
     if not msg.reply_to_message and len(msg.command) < 2:
-        await msg.reply("⚠️ Kullanım: /giveme @kullanici (veya yanıtla)"); return
-    uid = msg.reply_to_message.from_user.id if msg.reply_to_message else await app.get_users(msg.command[1].lstrip("@")).id
+        await msg.reply("⚠️ Kullanım: /giveme @kullanici (veya yanıtla)")
+        return
+    uid = msg.reply_to_message.from_user.id if msg.reply_to_message else (await app.get_users(msg.command[1].lstrip("@"))).id
     yetkili_adminler.add(uid)
     save_json(ADMINS_FILE, list(yetkili_adminler))
     await msg.reply(f"✅ `{uid}` ID'li kullanıcıya komut yetkisi verildi.")
@@ -47,9 +50,12 @@ async def add_admin(_, msg: Message):
 @app.on_message(filters.command("revoke") & filters.user(admin_id))
 async def remove_admin(_, msg: Message):
     if not msg.reply_to_message and len(msg.command) < 2:
-        await msg.reply("⚠️ Kullanım: /revoke @kullanici (veya yanıtla)"); return
-    uid = msg.reply_to_message.from_user.id if msg.reply_to_message else await app.get_users(msg.command[1].lstrip("@")).id
-    if uid == admin_id: await msg.reply("❌ Bot sahibinin yetkisi kaldırılamaz."); return
+        await msg.reply("⚠️ Kullanım: /revoke @kullanici (veya yanıtla)")
+        return
+    uid = msg.reply_to_message.from_user.id if msg.reply_to_message else (await app.get_users(msg.command[1].lstrip("@"))).id
+    if uid == admin_id:
+        await msg.reply("❌ Bot sahibinin yetkisi kaldırılamaz.")
+        return
     yetkili_adminler.discard(uid)
     save_json(ADMINS_FILE, list(yetkili_adminler))
     await msg.reply(f"🚫 `{uid}` ID'li kullanıcının yetkisi kaldırıldı.")
@@ -85,7 +91,8 @@ async def set_limit(_, msg):
         limits[int(seviye)] = {"msg": int(mesaj), "süre": int(süre)}
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
-    except: await msg.reply("⚠️ Kullanım: /setlimit [seviye] [mesaj] [süre]")
+    except:
+        await msg.reply("⚠️ Kullanım: /setlimit [seviye] [mesaj] [süre]")
 
 @app.on_message(filters.command("setmaxgrant"))
 async def set_grant(_, msg):
@@ -94,12 +101,15 @@ async def set_grant(_, msg):
         global max_grant
         max_grant = int(msg.text.split()[1])
         await msg.reply(f"✅ Günlük hak: {max_grant}")
-    except: await msg.reply("⚠️ Kullanım: /setmaxgrant [adet]")
+    except:
+        await msg.reply("⚠️ Kullanım: /setmaxgrant [adet]")
 
 @app.on_message(filters.command("listlimits"))
 async def list_limits(_, msg):
     if not is_authorized(msg.from_user.id): return
-    if not limits: await msg.reply("⚠️ Hiç limit ayarlanmamış."); return
+    if not limits:
+        await msg.reply("⚠️ Hiç limit ayarlanmamış.")
+        return
     text = "📋 **Seviye Limitleri:**\n"
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
@@ -119,11 +129,15 @@ async def reset_all(_, msg):
 async def user_status(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
     key = f"({cid}, {uid})"
-    if key not in user_data: await msg.reply("ℹ️ Kayıtlı verin yok."); return
+    if key not in user_data:
+        await msg.reply("ℹ️ Kayıtlı verin yok.")
+        return
     veri = user_data[key]
     seviye = veri["seviye"]
     kalan_hak = max_grant - veri["grant_count"]
-    if seviye not in limits: await msg.reply("ℹ️ Seviyen tanımlı değil."); return
+    if seviye not in limits:
+        await msg.reply("ℹ️ Seviyen tanımlı değil.")
+        return
     gereken = limits[seviye]["msg"]
     atilan = user_msg_count.get(key, 0)
     kalan = max(0, gereken - atilan)
@@ -162,9 +176,9 @@ async def takip_et(_, msg):
             except Exception as e:
                 print("HATA:", e)
                 await msg.reply("❌ Telegram izin veremedi (admin olabilir).")
- save_json(USERDATA_FILE, convert_keys_to_str(user_data))
- save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
- save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+    save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+    save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+    save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
@@ -177,7 +191,6 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
                 "🛠 *Geliştirici:* @Atabey27"
             )
 
-# Botu başlat
 print("🚀 Bot başlıyor...")
 app.run()
 print("❌ Bot durdu.")
