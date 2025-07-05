@@ -7,7 +7,8 @@ import time
 import json
 import os
 from dotenv import load_dotenv
-
+def convert_keys_to_str(d: dict) -> dict:
+    return {str(k): v for k, v in d.items()}
 load_dotenv()
 
 api_id = int(os.getenv("API_ID"))
@@ -109,9 +110,9 @@ async def list_limits(_, msg):
 async def reset_all(_, msg):
     if not is_authorized(msg.from_user.id): return
     user_data.clear(); user_msg_count.clear(); izin_sureleri.clear()
-    save_json(USERDATA_FILE, user_data)
-    save_json(COUNTS_FILE, user_msg_count)
-    save_json(IZIN_FILE, izin_sureleri)
+    save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+    save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+    save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Tüm veriler sıfırlandı.")
 
 @app.on_message(filters.command("status"))
@@ -161,9 +162,9 @@ async def takip_et(_, msg):
             except Exception as e:
                 print("HATA:", e)
                 await msg.reply("❌ Telegram izin veremedi (admin olabilir).")
-    save_json(USERDATA_FILE, user_data)
-    save_json(COUNTS_FILE, user_msg_count)
-    save_json(IZIN_FILE, izin_sureleri)
+ save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+ save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+ save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
