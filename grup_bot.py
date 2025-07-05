@@ -66,37 +66,37 @@ async def menu(_, msg: Message):
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
         [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
     ])
-    await msg.reply("📌 Menüye hoş geldin! Yapmak istediğini seç:", reply_markup=butonlar)
+    await msg.reply("👋 Merhaba! Ne yapmak istersin?", reply_markup=butonlar)
 
 @app.on_callback_query()
 async def buton_yanitla(_, cb: CallbackQuery):
     data = cb.data
     if data == "help":
-        butonlar = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]])
+        butonlar = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         await cb.message.edit_text(
             "**🆘 Yardım Menüsü:**\n\n"
-            "🧱 `/seviyeayar` → Seviye mesaj/süre ayarı yapar.\n"
-            "🎯 `/hakayarla` → Günlük medya hakkını belirler.\n"
-            "📊 `/seviyelistesi` → Tüm seviyeleri listeler.\n"
-            "🧹 `/verisil` → Tüm kullanıcı verilerini sıfırlar.\n"
-            "📌 `/durum` → Kendi seviyeni ve kalan hakkını gösterir.\n"
-            "🛡️ `/yetkiver` → Bir kullanıcıya komut yetkisi verir.\n"
-            "🚫 `/yetkial` → Kullanıcının yetkisini kaldırır.\n"
-            "ℹ️ `/hakkinda` → Bot hakkında bilgi verir.",
+            "🔹 `/seviyeayar` - 🧱 Seviye mesaj/süre ayarı yapar.\n"
+            "🔹 `/hakayarla` - 🎯 Günlük medya izni adedini belirler.\n"
+            "🔹 `/seviyelistesi` - 📊 Tüm seviyeleri listeler.\n"
+            "🔹 `/verisil` - 🧹 Tüm kullanıcı verilerini sıfırlar.\n"
+            "🔹 `/durum` - 📌 Mevcut seviyeni ve kalan hakkını gösterir.\n"
+            "🔹 `/yetkiver` - 🛡️ Kullanıcıya komut yetkisi verir.\n"
+            "🔹 `/yetkial` - 🚫 Kullanıcının yetkisini kaldırır.\n"
+            "🔹 `/hakkinda` - ℹ️ Botun tanıtımı.\n",
             reply_markup=butonlar
         )
     elif data == "limits":
         if not limits:
-            await cb.message.edit_text("⚠️ Ayarlanmış bir seviye bulunamadı.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]]))
+            await cb.message.edit_text("⚠️ Ayarlanmış bir seviye bulunamadı.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
             return
         metin = "📊 **Seviye Listesi:**\n\n"
         for seviye in sorted(limits.keys()):
             lim = limits[seviye]
-            metin += f"🔸 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn izin\n"
-        await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]]))
+            metin += f"🔸 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn medya izni\n"
+        await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "settings":
-        await cb.message.edit_text("⚙️ Ayarlar menüsü şu an geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]]))
-    elif data == "geri_menu":
+        await cb.message.edit_text("⚙️ Ayarlar menüsü şu an geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+    elif data == "geri":
         await cb.message.delete()
         await menu(_, cb.message)
 
@@ -220,10 +220,20 @@ async def takip_et(_, msg):
             user_data[key]["grant_count"] += 1
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
-            await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn izin verildi.")
+            await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
-            izin_ver = ChatPermissions(can_send_other_messages=True)
-            izin_kisitla = ChatPermissions(can_send_other_messages=False)
+            izin_ver = ChatPermissions(
+    can_send_messages=True,
+    can_send_stickers=True,
+    can_send_animations=True
+
+)
+
+izin_kisitla = ChatPermissions(
+    can_send_messages=True,
+    can_send_stickers=False,
+    can_send_animations=False
+)
 
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
@@ -251,4 +261,4 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
 
 print("🚀 Bot başlatılıyor...")
 app.run()
-print("❌ Bot kapatıldı.")
+print("❌ Bot durdu.")
