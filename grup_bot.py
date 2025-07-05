@@ -155,11 +155,16 @@ async def takip_et(_, msg):
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
+
     if key not in user_data or user_data[key]["date"] != today:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[key] = 0
-    if now < izin_sureleri.get(key, 0): return
+
+    if now < izin_sureleri.get(key, 0):
+        return
+
     user_msg_count[key] += 1
+
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
         if user_msg_count[key] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
@@ -168,14 +173,38 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn izin verildi.")
+
+            izin_ver = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_polls=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+                can_change_info=False,
+                can_invite_users=True,
+                can_pin_messages=False
+            )
+
+            izin_kisitla = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_polls=True,
+                can_send_other_messages=False,
+                can_add_web_page_previews=True,
+                can_change_info=False,
+                can_invite_users=True,
+                can_pin_messages=False
+            )
+
             try:
-                await app.restrict_chat_member(cid, uid, ChatPermissions(True, True, True, True))
+                await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
-                await app.restrict_chat_member(cid, uid, ChatPermissions(True, True, False, True))
+                await app.restrict_chat_member(cid, uid, izin_kisitla)
                 await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
                 print("HATA:", e)
-                await msg.reply("❌ Telegram izin veremedi (admin olabilir).")
+                await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
+
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
             save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
