@@ -1,7 +1,11 @@
 from pyrogram import Client, filters
 from pyrogram.types import (
-    ChatPermissions, Message, ChatMemberUpdated,
-    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+    ChatPermissions,
+    Message,
+    ChatMemberUpdated,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
 )
 from collections import defaultdict
 from datetime import datetime
@@ -29,6 +33,7 @@ def parse_sure(s: str) -> int:
     return total_seconds
 
 load_dotenv()
+
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
@@ -51,11 +56,8 @@ yetkili_adminler = set(load_json(ADMINS_FILE, [admin_id]))
 max_grant = 2
 
 app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
-def is_authorized(user_id: int): return user_id in yetkili_adminler
 
-@app.on_message(filters.command("start"))
-async def start(_, msg: Message):
-    await msg.reply("✅ Bot çalışıyor! Komutlar için /menu yazabilirsin.")
+def is_authorized(user_id: int): return user_id in yetkili_adminler
 
 @app.on_message(filters.command("menu"))
 async def menu(_, msg: Message):
@@ -64,24 +66,23 @@ async def menu(_, msg: Message):
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
         [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
     ])
-    await msg.reply("👋 Merhaba! Ne yapmak istersin?", reply_markup=butonlar)
+    await msg.reply("📌 Menüye hoş geldin! Yapmak istediğini seç:", reply_markup=butonlar)
 
 @app.on_callback_query()
 async def buton_yanitla(_, cb: CallbackQuery):
     data = cb.data
     if data == "help":
         butonlar = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]])
-        await cb.message.delete()
-        await cb.message.chat.send_message(
-            "**📖 Yardım Menüsü:**\n\n"
-            "🔹 `/seviyeayar` - 🧱 Seviye mesaj/süre ayarı yapar.\n"
-            "🔹 `/hakayarla` - 🎯 Günlük medya izni adedini belirler.\n"
-            "🔹 `/seviyelistesi` - 📊 Tüm seviyeleri listeler.\n"
-            "🔹 `/verisil` - 🧹 Tüm kullanıcı verilerini sıfırlar.\n"
-            "🔹 `/durum` - 📌 Mevcut seviyeni ve kalan hakkını gösterir.\n"
-            "🔹 `/yetkiver` - 🛡️ Kullanıcıya komut yetkisi verir.\n"
-            "🔹 `/yetkial` - 🚫 Kullanıcının yetkisini kaldırır.\n"
-            "🔹 `/hakkinda` - ℹ️ Botun tanıtımı.\n",
+        await cb.message.edit_text(
+            "**🆘 Yardım Menüsü:**\n\n"
+            "🧱 `/seviyeayar` → Seviye mesaj/süre ayarı yapar.\n"
+            "🎯 `/hakayarla` → Günlük medya hakkını belirler.\n"
+            "📊 `/seviyelistesi` → Tüm seviyeleri listeler.\n"
+            "🧹 `/verisil` → Tüm kullanıcı verilerini sıfırlar.\n"
+            "📌 `/durum` → Kendi seviyeni ve kalan hakkını gösterir.\n"
+            "🛡️ `/yetkiver` → Bir kullanıcıya komut yetkisi verir.\n"
+            "🚫 `/yetkial` → Kullanıcının yetkisini kaldırır.\n"
+            "ℹ️ `/hakkinda` → Bot hakkında bilgi verir.",
             reply_markup=butonlar
         )
     elif data == "limits":
@@ -97,14 +98,7 @@ async def buton_yanitla(_, cb: CallbackQuery):
         await cb.message.edit_text("⚙️ Ayarlar menüsü şu an geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri_menu")]]))
     elif data == "geri_menu":
         await cb.message.delete()
-        await cb.message.chat.send_message(
-            "👋 Merhaba! Ne yapmak istersin?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
-                [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
-                [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
-            ])
-        )
+        await menu(_, cb.message)
 
 @app.on_message(filters.command("seviyeayar"))
 async def set_limit(_, msg):
@@ -216,6 +210,7 @@ async def takip_et(_, msg):
         user_msg_count[key] = 0
 
     if now < izin_sureleri.get(key, 0): return
+
     user_msg_count[key] += 1
 
     for seviye in sorted(limits.keys()):
@@ -250,10 +245,10 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             await app.send_message(cmu.chat.id,
                 "👋 Merhaba! Ben bu grubun aktiflik takip botuyum.\n"
                 "Mesaj atan kullanıcılar seviye atlar ve kısa süreli medya izni kazanır.\n"
-                "ℹ️ Komutlar için: /menu\n\n"
+                "ℹ️ Komutlar için /menu yazabilirsin.\n\n"
                 "🛠 *Geliştirici:* @Atabey27"
             )
 
-print("🚀 Bot başlıyor...")
+print("🚀 Bot başlatılıyor...")
 app.run()
-print("❌ Bot durdu.")
+print("❌ Bot kapatıldı.")
