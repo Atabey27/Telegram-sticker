@@ -43,9 +43,10 @@ async def menu(_, msg: Message):
     butonlar = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
-        [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")]
+        [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
+        [InlineKeyboardButton("👥 Admin Listesi", callback_data="adminlistesi")]
     ])
-    await msg.reply("👋 Merhaba! Ne yapmak istersin?", reply_markup=butonlar)
+    await msg.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=butonlar)
 
 @app.on_callback_query()
 async def buton_yanitla(_, cb: CallbackQuery):
@@ -53,49 +54,54 @@ async def buton_yanitla(_, cb: CallbackQuery):
 
     if data == "help":
         await cb.message.edit_text(
-            "**🆘 Yardım Menüsü:**\n\n"
+            "**📋 Yardım Menüsü:**\n\n"
             "🔹 `/seviyeayar [seviye] [mesaj] [sayı] [saniye|dakika|saat]`\n"
-            " 🧱 Seviye hedefi ve izin süresi belirler.\n\n"
+            " 🧱 Seviye mesaj ve izin süresi belirle.\n\n"
             "🔹 `/hakayarla [adet]`\n"
-            " 🎯 Günlük medya hakkı miktarını belirler.\n\n"
+            " 🎯 Günlük medya (sticker/GIF) hakkı belirle.\n\n"
             "🔹 `/seviyelistesi`\n"
-            " 📊 Tüm seviye ayarlarını listeler.\n\n"
+            " 📊 Tüm seviye ayarlarını listele.\n\n"
             "🔹 `/verisil`\n"
-            " 🧹 Tüm kullanıcı verilerini sıfırlar.\n\n"
+            " 🧹 Tüm kullanıcı verilerini sil.\n\n"
             "🔹 `/durumum`\n"
-            " 📌 Kendi seviyeni ve kalan hakkını gösterir.\n\n"
+            " 📌 Kendi seviyeni, kalan mesajı ve hakkını göster.\n\n"
             "🔹 `/yetkiver @kullanici`\n"
-            " 🛡️ Kullanıcıya bot yetkisi verir.\n\n"
+            " 🛡️ Kullanıcıya admin yetkisi ver.\n\n"
             "🔹 `/yetkial @kullanici`\n"
-            " 🚫 Kullanıcının yetkisini kaldırır.\n\n"
+            " 🚫 Kullanıcının yetkisini al.\n\n"
             "🔹 `/adminlistesi`\n"
-            " 👥 Yetkili adminleri listeler.\n\n"
+            " 👥 Yetkili adminleri göster.\n\n"
             "🔹 `/hakkinda`\n"
-            " ℹ️ Botun tanıtımı.\n",
+            " ℹ️ Botun amacı ve geliştirici.\n",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
 
     elif data == "limits":
         if not limits:
-            await cb.message.edit_text(
-                "⚠️ Ayarlanmış bir seviye bulunamadı.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
-            )
+            await cb.message.edit_text("⚠️ Ayarlanmış bir seviye yok.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
             return
         metin = "📊 **Seviye Listesi:**\n\n"
         for seviye in sorted(limits.keys()):
             lim = limits[seviye]
             metin += f"🔸 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn medya izni\n"
-        await cb.message.edit_text(
-            metin,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
-        )
+        await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+
+    elif data == "adminlistesi":
+        if not yetkili_adminler:
+            await cb.message.edit_text("⚠️ Tanımlı admin yok.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+            return
+        metin = "**👥 Yetkili Adminler:**\n"
+        for uid in yetkili_adminler:
+            try:
+                user = await app.get_users(uid)
+                isim = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name or ''}".strip()
+                metin += f"• `{uid}` - {isim}\n"
+            except:
+                metin += f"• `{uid}` - (kullanıcı bulunamadı)\n"
+        await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
 
     elif data == "settings":
-        await cb.message.edit_text(
-            "⚙️ Ayarlar menüsü şu an geliştiriliyor.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
-        )
+        await cb.message.edit_text("⚙️ Ayarlar menüsü şu an geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
 
     elif data == "geri":
         await cb.message.delete()
@@ -106,12 +112,11 @@ async def set_limit(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
         _, seviye, mesaj, sure_sayi, sure_birim = msg.text.split(maxsplit=4)
-        sure_birim = sure_birim.lower()
         carpim = {"saniye": 1, "dakika": 60, "saat": 3600}
-        if sure_birim not in carpim:
-            await msg.reply("⚠️ Süre birimi sadece: saniye, dakika, saat olabilir.")
+        if sure_birim.lower() not in carpim:
+            await msg.reply("⚠️ Süre birimi 'saniye', 'dakika' veya 'saat' olmalı.")
             return
-        toplam_sure = int(sure_sayi) * carpim[sure_birim]
+        toplam_sure = int(sure_sayi) * carpim[sure_birim.lower()]
         limits[int(seviye)] = {"msg": int(mesaj), "süre": toplam_sure}
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı: {mesaj} mesaj → {sure_sayi} {sure_birim} ({toplam_sure} sn)")
@@ -128,6 +133,18 @@ async def set_grant(_, msg):
     except:
         await msg.reply("⚠️ Kullanım: /hakayarla [adet]")
 
+@app.on_message(filters.command("seviyelistesi"))
+async def list_limits(_, msg):
+    if not is_authorized(msg.from_user.id): return
+    if not limits:
+        await msg.reply("⚠️ Henüz hiç seviye ayarı yapılmamış.")
+        return
+    text = "📋 **Seviye Listesi:**\n"
+    for seviye in sorted(limits.keys()):
+        lim = limits[seviye]
+        text += f"🔹 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn izin\n"
+    await msg.reply(text)
+
 @app.on_message(filters.command("verisil"))
 async def reset_all(_, msg):
     if not is_authorized(msg.from_user.id): return
@@ -137,44 +154,17 @@ async def reset_all(_, msg):
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Tüm kullanıcı verileri silindi.")
 
-@app.on_message(filters.command("seviyelistesi"))
-async def list_limits(_, msg):
-    if not is_authorized(msg.from_user.id): return
-    if not limits:
-        await msg.reply("⚠️ Henüz seviye ayarı yapılmamış.")
-        return
-    text = "📋 **Seviye Listesi:**\n"
-    for seviye in sorted(limits.keys()):
-        lim = limits[seviye]
-        text += f"🔹 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn izin\n"
-    await msg.reply(text)
-
-@app.on_message(filters.command("adminlistesi") & filters.user(admin_id))
-async def admin_listesi(_, msg):
-    if not yetkili_adminler:
-        await msg.reply("⚠️ Hiç admin tanımlanmamış.")
-        return
-    metin = "**🔐 Yetkili Adminler:**\n"
-    for uid in yetkili_adminler:
-        try:
-            user = await app.get_users(uid)
-            isim = f"@{user.username}" if user.username else f"{user.first_name} {user.last_name or ''}".strip()
-            metin += f"• `{uid}` - {isim}\n"
-        except:
-            metin += f"• `{uid}` - (kullanıcı bulunamadı)\n"
-    await msg.reply(metin)
-
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
     key = f"({cid}, {uid})"
     if key not in user_data:
-        await msg.reply("ℹ️ Henüz kayıtlı verin yok.")
+        await msg.reply("ℹ️ Henüz kayıtlı verin bulunamadı.")
         return
     veri = user_data[key]
     seviye = veri["seviye"]
     if seviye not in limits:
-        await msg.reply("ℹ️ Seviyen tanımlı değil.")
+        await msg.reply("ℹ️ Seviyen ayarlanmamış.")
         return
     gereken = limits[seviye]["msg"]
     atilan = user_msg_count.get(key, 0)
@@ -188,17 +178,17 @@ async def user_status(_, msg):
     )
 
 @app.on_message(filters.command("yetkiver") & filters.user(admin_id))
-async def add_admin(_, msg):
+async def add_admin(_, msg: Message):
     if not msg.reply_to_message and len(msg.command) < 2:
         await msg.reply("⚠️ Kullanım: /yetkiver @kullanici (veya yanıtla)")
         return
     uid = msg.reply_to_message.from_user.id if msg.reply_to_message else (await app.get_users(msg.command[1].lstrip("@"))).id
     yetkili_adminler.add(uid)
     save_json(ADMINS_FILE, list(yetkili_adminler))
-    await msg.reply(f"✅ `{uid}` ID'li kullanıcıya yetki verildi.")
+    await msg.reply(f"✅ `{uid}` ID'li kullanıcıya komut yetkisi verildi.")
 
 @app.on_message(filters.command("yetkial") & filters.user(admin_id))
-async def remove_admin(_, msg):
+async def remove_admin(_, msg: Message):
     if not msg.reply_to_message and len(msg.command) < 2:
         await msg.reply("⚠️ Kullanım: /yetkial @kullanici (veya yanıtla)")
         return
@@ -240,7 +230,6 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn medya izni verildi.")
-
             izin_ver = ChatPermissions(
                 can_send_messages=True,
                 can_send_media_messages=True,
@@ -251,16 +240,13 @@ async def takip_et(_, msg):
                 can_send_media_messages=False,
                 can_send_other_messages=False
             )
-
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
                 await app.restrict_chat_member(cid, uid, izin_kisitla)
                 await msg.reply("⌛️ Medya iznin sona erdi.")
             except Exception as e:
-                print("HATA:", e)
-                await msg.reply(f"❌ Telegram izinleri uygulanamadı:\n{e}")
-
+                await msg.reply(f"❌ Hata oluştu: {e}")
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
             save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
@@ -271,7 +257,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
         if cmu.new_chat_member.user.id == (await app.get_me()).id:
             await app.send_message(cmu.chat.id,
                 "👋 Merhaba! Ben bu grubun aktiflik takip botuyum.\n"
-                "Mesaj atan kullanıcılar seviye atlayarak kısa süreli medya (sticker/GIF) izni kazanır.\n"
+                "Mesaj atan kullanıcılar seviye atlayarak kısa süreli medya izni kazanır.\n"
                 "ℹ️ Menü için /menu yazabilirsin."
             )
 
