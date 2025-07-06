@@ -246,12 +246,13 @@ try:
 
     await msg.reply("⏳ Medya iznin sona erdi.")
 except Exception as e:
-    print("HATA:", e)
-    await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
+        print("HATA:", e)
+        await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
 
-save_json(USERDATA_FILE, convert_keys_to_str(user_data))
-save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
-save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+    # ← Bu satırdan itibaren girinti sadece 1 TAB (veya 4 boşluk) olacak
+    save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+    save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+    save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
