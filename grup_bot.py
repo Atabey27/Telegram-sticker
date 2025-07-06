@@ -173,10 +173,21 @@ async def remove_admin(_, msg):
 async def about_info(_, msg):
     await msg.reply("🤖 Aktiflik Botu\nKullanıcıların mesajlarıyla seviye atlamasını sağlar ve süreli medya izni verir.\n🛠 Geliştirici: @Atabey27")
 
+@app.on_message(filters.private & filters.command("start"))
+async def start_command(_, msg):
+    btn = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Gruba Ekle", url=f"https://t.me/{(await app.get_me()).username}?startgroup=true")],
+    ])
+    await msg.reply(
+        "👋 Selam! Ben aktiflik botuyum. Beni bir gruba ekleyerek mesajlara göre kullanıcıları takip edebilirim.\n\n"
+        "👇 Hemen aşağıdan beni grubuna ekle:",
+        reply_markup=btn
+    )
+
 @app.on_message(filters.group & ~filters.service)
 async def takip_et(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
-    if uid in yetkili_adminler: return  # adminler tamamen hariç
+    if uid in yetkili_adminler: return
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
@@ -193,7 +204,6 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn sticker/GIF izni verildi.")
-
             izin_ver = ChatPermissions(
                 can_send_messages=True,
                 can_send_media_messages=True,
@@ -214,7 +224,6 @@ async def takip_et(_, msg):
                 can_invite_users=False,
                 can_pin_messages=False
             )
-
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
@@ -223,13 +232,6 @@ async def takip_et(_, msg):
             except Exception as e:
                 print("HATA:", e)
                 await msg.reply(f"❌ Telegram izinleri uygulanamadı:\n{e}")
-            try:
-                await app.restrict_chat_member(cid, uid, izin_ver)
-                await asyncio.sleep(lim["süre"])
-                await app.restrict_chat_member(cid, uid, izin_kisitla)
-                await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
-            except Exception as e:
-                await msg.reply(f"❌ Hata: {e}")
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
             save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
@@ -237,14 +239,15 @@ async def takip_et(_, msg):
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     if cmu.new_chat_member and cmu.new_chat_member.user.id == (await app.get_me()).id:
-        await app.send_message(cmu.chat.id,
-            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.   Çalışmam için Lütfen bana Kullanıcı yasaklama ve Mesaj silme yetkisi verin")
-@app.on_message(filters.private & filters.command("start"))
-async def ozel_start(_, msg):
-    btn = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Beni Gruba Ekle", url=f"https://t.me/{(await app.get_me()).username}?startgroup=true")]
-    ])
-    await msg.reply("🤖 Merhaba! Beni grubuna ekleyerek aktiflik sistemini başlatabilirsin.", reply_markup=btn)
-    
+        await app.send_message(
+            cmu.chat.id,
+            "👋 Selam! Ben bu grupta aktiflikleri takip edeceğim.\n\n"
+            "✅ Sağlıklı çalışmam için aşağıdaki izinleri vermen gerekiyor:\n"
+            "• Kullanıcıları kısıtlama (mute/izin verme)\n"
+            "• Mesaj silme\n\n"
+            "🔧 Bu izinleri **grup ayarlarından** bana vermezsen görevimi yapamam.\n"
+            "`/menu` komutu ile başlayabilirsin."
+        )
+
 print("🚀 Bot başlatılıyor...")
 app.run()
