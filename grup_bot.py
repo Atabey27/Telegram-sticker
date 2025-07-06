@@ -221,7 +221,7 @@ async def takip_et(_, msg):
                 can_pin_messages=False
             )
             izin_kisitla = ChatPermissions(
-                can_send_messages=False,
+                can_send_messages=True,
                 can_send_media_messages=False,
                 can_send_polls=False,
                 can_send_other_messages=False,
