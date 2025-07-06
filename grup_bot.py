@@ -71,32 +71,15 @@ async def takip_et(_, msg):
             user_data[key]["grant_count"] += 1
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
-            await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn boyunca çıkartma ve GIF izni verildi.")
-
+            await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn izin verildi.")
             try:
-                print(f"[GRANT] Kullanıcı: {uid} / Seviye: {seviye}")
-                izin_ver = ChatPermissions(
-                    can_send_messages=True,
-                    can_send_stickers=True,
-                    can_send_animations=True
-                )
-                await app.restrict_chat_member(cid, uid, izin_ver)
-                await msg.reply("✅ İzin verildi: sadece çıkartma + GIF")
-                print("[INFO] İzin verildi.")
-
+                await app.restrict_chat_member(cid, uid, ChatPermissions(True, True, True, True))
                 await asyncio.sleep(lim["süre"])
-
-                izin_kisitla = ChatPermissions(
-                    can_send_messages=True,
-                    can_send_stickers=False,
-                    can_send_animations=False
-                )
-                await app.restrict_chat_member(cid, uid, izin_kisitla)
-                await msg.reply("⏳ Medya iznin sona erdi.")
-                print("[INFO] İzin süresi doldu, kısıtlama geri getirildi.")
+                await app.restrict_chat_member(cid, uid, ChatPermissions(True, True, False, True))
+                await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
-                print(f"[ERROR] Telegram izin veremedi: {e}")
-                await msg.reply("❌ Telegram izin veremedi.")
+                print("HATA:", e)
+                await msg.reply("❌ Telegram izin veremedi (admin olabilir).")
 
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
