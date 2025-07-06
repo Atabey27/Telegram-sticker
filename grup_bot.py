@@ -238,7 +238,13 @@ async def takip_et(_, msg):
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     if cmu.new_chat_member and cmu.new_chat_member.user.id == (await app.get_me()).id:
         await app.send_message(cmu.chat.id,
-            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.Çalışmam için Lütfen bana Kullanıcı yasaklama ve Mesaj silmesi yetkisi verin")
-
+            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.   Çalışmam için Lütfen bana Kullanıcı yasaklama ve Mesaj silme yetkisi verin")
+@app.on_message(filters.private & filters.command("start"))
+async def ozel_start(_, msg):
+    btn = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Beni Gruba Ekle", url=f"https://t.me/{(await app.get_me()).username}?startgroup=true")]
+    ])
+    await msg.reply("🤖 Merhaba! Beni grubuna ekleyerek aktiflik sistemini başlatabilirsin.", reply_markup=btn)
+    
 print("🚀 Bot başlatılıyor...")
 app.run()
