@@ -53,7 +53,7 @@ async def buton(_, cb: CallbackQuery):
     elif data == "help":
         await cb.message.edit_text(
             "**🆘 Yardım Menüsü:**\n\n"
-            "🧱 `/seviyeayar 2 10 saniye` → Seviye 2 için 10 mesaj → süre = saniye/dakika/saat\n"
+            "🧱 `/seviyeayar 2 10 60 saniye` → Seviye 2 için 10 mesaj → 60 saniye medya izni\n"
             "🎯 `/hakayarla 5` → Günlük izin adedi\n"
             "📊 `/seviyelistesi` → Ayarlanmış seviyeleri gösterir\n"
             "🧹 `/verisil` → Tüm kullanıcı verisini sıfırlar\n"
@@ -90,12 +90,12 @@ async def buton(_, cb: CallbackQuery):
 async def set_limit(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
-        _, seviye, mesaj, birim = msg.text.split()
-        limits[int(seviye)] = {"msg": int(mesaj), "süre": parse_time(mesaj, birim)}
+        _, seviye, mesaj, sure, birim = msg.text.split()
+        limits[int(seviye)] = {"msg": int(mesaj), "süre": parse_time(sure, birim)}
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
     except:
-        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [saniye|dakika|saat]")
+        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre] [saniye|dakika|saat]")
 
 @app.on_message(filters.command("hakayarla"))
 async def set_grant(_, msg):
@@ -184,8 +184,16 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn izin verildi.")
-            izin_ver = ChatPermissions(can_send_media_messages=True, can_send_other_messages=True)
-            izin_kisitla = ChatPermissions(can_send_media_messages=False, can_send_other_messages=False)
+            izin_ver = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=False
+            )
+            izin_kisitla = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=False,
+                can_send_other_messages=False
+            )
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
