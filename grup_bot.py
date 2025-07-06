@@ -5,23 +5,10 @@ import asyncio
 import time
 import json
 import os
-import re
 from dotenv import load_dotenv
 
 def convert_keys_to_str(d): return {str(k): v for k, v in d.items()}
-
-# Türkçe süreyi saniyeye çevir
-def parse_time(expr):
-    expr = expr.strip().lower().replace(" ", "")
-    matches = re.findall(r"(\d+)(saat|dk|dakika|sn|saniye)", expr)
-    if not matches: return None
-    total = 0
-    for val, unit in matches:
-        val = int(val)
-        if unit in ["sn", "saniye"]: total += val
-        elif unit in ["dk", "dakika"]: total += val * 60
-        elif unit == "saat": total += val * 3600
-    return total
+def parse_time(val, unit): return int(val) * {"saniye": 1, "dakika": 60, "saat": 3600}.get(unit, 1)
 
 load_dotenv()
 api_id = int(os.getenv("API_ID"))
@@ -54,6 +41,7 @@ async def menu(_, msg: Message):
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
         [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
+        [InlineKeyboardButton("👥 Admin Listesi", callback_data="adminlistesi")],
         [InlineKeyboardButton("❌ Kapat", callback_data="kapat")]
     ])
     await msg.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
@@ -63,19 +51,26 @@ async def buton(_, cb: CallbackQuery):
     data = cb.data
     if data == "kapat":
         await cb.message.delete()
+        return
     elif data == "help":
         await cb.message.edit_text(
             "**🆘 Yardım Menüsü:**\n\n"
-            "`/seviyeayar [seviye] [mesaj] [süre]` → Belirli seviyede kaç mesaj atınca ne kadar izin verileceğini ayarlar.\n"
-            "**Örnek:** `/seviyeayar 2 15 1dk30sn`\n"
-            "\n"
-            "`/hakayarla [adet]` → Günlük verilebilecek maksimum medya hakkı.\n"
-            "`/seviyelistesi` → Tüm seviye ayarlarını listeler.\n"
-            "`/verisil` → Tüm kullanıcı kayıtlarını sıfırlar.\n"
-            "`/durumum` → Mevcut seviyeni ve kalan hakkını gösterir.\n"
-            "`/yetkiver @kullanici` → Komut yetkisi verir.\n"
-            "`/yetkial @kullanici` → Yetkiyi geri alır.\n"
-            "`/hakkinda` → Bot hakkında bilgi.\n",
+            "🧱 `/seviyeayar [seviye] [mesaj] [birim]`\n"
+            " ➡️ Örnek: `/seviyeayar 2 10 dakika`\n"
+            " Bu komutla seviye 2’ye ulaşmak için gereken mesaj sayısı ve medya izni süresi ayarlanır.\n\n"
+            "🎯 `/hakayarla [adet]`\n"
+            " ➡️ Günlük kullanıcıya tanınabilecek en fazla izin hakkını belirler.\n\n"
+            "📊 `/seviyelistesi`\n"
+            " ➡️ Tüm seviye ve mesaj-süre ayarlarını listeler.\n\n"
+            "🧹 `/verisil`\n"
+            " ➡️ Tüm kullanıcı verilerini sıfırlar (sadece adminler kullanabilir).\n\n"
+            "📌 `/durumum`\n"
+            " ➡️ Kendi seviyeni, kalan mesaj sayını ve günlük hakkını gösterir.\n\n"
+            "🛡️ `/yetkiver @kullanici`\n"
+            "🚫 `/yetkial @kullanici`\n"
+            " ➡️ Komutları kullanma yetkisi verir/alır (sadece bot sahibi).\n\n"
+            "ℹ️ `/hakkinda`\n"
+            " ➡️ Bot hakkında bilgi verir.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
     elif data == "limits":
@@ -85,10 +80,18 @@ async def buton(_, cb: CallbackQuery):
         text = "📊 **Seviye Listesi:**\n\n"
         for s in sorted(limits.keys()):
             l = limits[s]
-            text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn\n"
+            text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn izin\n"
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "settings":
         await cb.message.edit_text("⚙️ Ayarlar menüsü geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+    elif data == "adminlistesi":
+        metin = "👥 **Yetkili Adminler:**\n"
+        for uid in yetkili_adminler:
+            try:
+                u = await app.get_users(uid)
+                metin += f"• @{u.username}\n" if u.username else f"• {u.first_name}\n"
+            except: continue
+        await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "geri":
         await cb.message.delete()
         await menu(_, cb.message)
@@ -97,15 +100,12 @@ async def buton(_, cb: CallbackQuery):
 async def set_limit(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
-        _, seviye, mesaj, *sure_birim = msg.text.split()
-        sure_str = "".join(sure_birim)
-        sn = parse_time(sure_str)
-        if not sn: return await msg.reply("⚠️ Hatalı süre formatı.")
-        limits[int(seviye)] = {"msg": int(mesaj), "süre": sn}
+        _, seviye, mesaj, birim = msg.text.split()
+        limits[int(seviye)] = {"msg": int(mesaj), "süre": parse_time(mesaj, birim)}
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
     except:
-        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre]\nÖrnek: /seviyeayar 3 10 1dk30sn")
+        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [saniye|dakika|saat]")
 
 @app.on_message(filters.command("hakayarla"))
 async def set_grant(_, msg):
@@ -125,6 +125,18 @@ async def reset_all(_, msg):
     save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Tüm kullanıcı verileri silindi.")
+
+@app.on_message(filters.command("seviyelistesi"))
+async def list_limits(_, msg):
+    if not is_authorized(msg.from_user.id): return
+    if not limits:
+        await msg.reply("⚠️ Henüz seviye ayarı yapılmamış.")
+        return
+    text = "📋 **Seviye Listesi:**\n"
+    for s in sorted(limits.keys()):
+        l = limits[s]
+        text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn\n"
+    await msg.reply(text)
 
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg):
@@ -162,16 +174,16 @@ async def about_info(_, msg):
 @app.on_message(filters.group & ~filters.service)
 async def takip_et(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
+    me = await app.get_chat_member(cid, uid)
+    if me.status in ("administrator", "creator"): return
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
-
     if key not in user_data or user_data[key]["date"] != today:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[key] = 0
     if now < izin_sureleri.get(key, 0): return
     user_msg_count[key] += 1
-
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
         if user_msg_count[key] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
@@ -196,7 +208,8 @@ async def takip_et(_, msg):
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     if cmu.new_chat_member and cmu.new_chat_member.user.id == (await app.get_me()).id:
-        await app.send_message(cmu.chat.id, "👋 Merhaba! Ben aktiflik takip botuyum.\nSeviye atladıkça sticker/GIF izni kazanırsın.\n/menu yazarak başlayabilirsin.")
+        await app.send_message(cmu.chat.id,
+            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.")
 
 print("🚀 Bot başlatılıyor...")
 app.run()
