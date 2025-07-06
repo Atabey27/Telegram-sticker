@@ -131,8 +131,3 @@ Botu geliştirmek istiyorsan, pull request gönderebilir veya issues bölümünd
 
 
 ---
-
-📄 Lisans
-
-MIT Lisansı — detaylar için LICENSE dosyasına bak.
-
