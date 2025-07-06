@@ -209,7 +209,7 @@ async def takip_et(_, msg):
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
-            try:
+try:
     print("Kısıtlama uygulanacak ID:", msg.from_user.id)
     me = await app.get_chat_member(msg.chat.id, BOT_ID)
     print("Bot yetkileri:", me)
@@ -221,6 +221,7 @@ async def takip_et(_, msg):
     )
     await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
     await msg.reply("✅ Medya izni verildi.")
+
 except Exception as e:
     print("HATA:", e)
     await msg.reply("❌ Telegram izin veremedi.")
