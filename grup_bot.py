@@ -210,26 +210,20 @@ async def takip_et(_, msg):
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
             try:
-                izin_ver = ChatPermissions(
-                    can_send_messages=True,
-                    can_send_stickers=True,
-                    can_send_animations=True
-                )
-                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
+    print("Kısıtlama uygulanacak ID:", msg.from_user.id)
+    me = await app.get_chat_member(msg.chat.id, BOT_ID)
+    print("Bot yetkileri:", me)
 
-                await asyncio.sleep(lim["süre"])
-
-                izin_kisitla = ChatPermissions(
-                    can_send_messages=True,
-                    can_send_stickers=False,
-                    can_send_animations=False
-                )
-                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_kisitla)
-
-                await msg.reply("⏳ Medya iznin sona erdi.")
-            except Exception as e:
-                print("HATA:", e)
-                await msg.reply("❌ Telegram izin veremedi (bot admin olmayabilir).")
+    izin_ver = ChatPermissions(
+        can_send_messages=True,
+        can_send_stickers=True,
+        can_send_animations=True
+    )
+    await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
+    await msg.reply("✅ Medya izni verildi.")
+except Exception as e:
+    print("HATA:", e)
+    await msg.reply("❌ Telegram izin veremedi.")
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
             save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
             save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
