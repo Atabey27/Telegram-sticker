@@ -208,7 +208,7 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
-            trytry:
+ try:
     izin_ver = ChatPermissions(
         can_send_messages=True,
         can_send_stickers=True,
