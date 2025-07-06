@@ -193,9 +193,37 @@ async def takip_et(_, msg):
             user_data[key]["grant_count"] += 1
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
-            await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn izin verildi.")
-            izin_ver = ChatPermissions(can_send_media_messages=True, can_send_other_messages=True)
-            izin_kisitla = ChatPermissions(can_send_media_messages=False, can_send_other_messages=False)
+            await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn sticker/GIF izni verildi.")
+
+            izin_ver = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_polls=False,
+                can_send_other_messages=True,
+                can_add_web_page_previews=False,
+                can_change_info=False,
+                can_invite_users=False,
+                can_pin_messages=False
+            )
+            izin_kisitla = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=False,
+                can_send_polls=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False,
+                can_change_info=False,
+                can_invite_users=False,
+                can_pin_messages=False
+            )
+
+            try:
+                await app.restrict_chat_member(cid, uid, izin_ver)
+                await asyncio.sleep(lim["süre"])
+                await app.restrict_chat_member(cid, uid, izin_kisitla)
+                await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
+            except Exception as e:
+                print("HATA:", e)
+                await msg.reply(f"❌ Telegram izinleri uygulanamadı:\n{e}")
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
