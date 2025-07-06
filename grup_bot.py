@@ -56,14 +56,11 @@ async def takip_et(_, msg):
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
-
     if key not in user_data or user_data[key]["date"] != today:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[key] = 0
-
     if now < izin_sureleri.get(key, 0): return
     user_msg_count[key] += 1
-
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
         if user_msg_count[key] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
@@ -81,10 +78,9 @@ async def takip_et(_, msg):
                 print("HATA:", e)
                 await msg.reply("❌ Telegram izin veremedi (admin olabilir).")
 
-            save_json(USERDATA_FILE, convert_keys_to_str(user_data))
-            save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
-            save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
-            break
+    save_json(USERDATA_FILE, user_data)
+    save_json(COUNTS_FILE, user_msg_count)
+    save_json(IZIN_FILE, izin_sureleri)
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
