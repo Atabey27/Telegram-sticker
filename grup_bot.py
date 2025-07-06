@@ -55,7 +55,7 @@ async def buton_yanitla(_, cb: CallbackQuery):
     if data == "help":
         await cb.message.edit_text(
             "**📋 Yardım Menüsü:**\n\n"
-            "🔹 `/seviyeayar [seviye] [mesaj] [sayı] [saniye|dakika|saat]`\n"
+            "🔹 `/seviyeayar [seviye] [mesaj sayısı] [saniye|dakika|saat]`\n"
             " 🧱 Seviye mesaj ve izin süresi belirle.\n\n"
             "🔹 `/hakayarla [adet]`\n"
             " 🎯 Günlük medya (sticker/GIF) hakkı belirle.\n\n"
@@ -69,8 +69,6 @@ async def buton_yanitla(_, cb: CallbackQuery):
             " 🛡️ Kullanıcıya admin yetkisi ver.\n\n"
             "🔹 `/yetkial @kullanici`\n"
             " 🚫 Kullanıcının yetkisini al.\n\n"
-            "🔹 `/adminlistesi`\n"
-            " 👥 Yetkili adminleri göster.\n\n"
             "🔹 `/hakkinda`\n"
             " ℹ️ Botun amacı ve geliştirici.\n",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
