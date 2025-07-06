@@ -4,6 +4,7 @@ from datetime import datetime
 import asyncio, time, json, os, re
 from dotenv import load_dotenv
 
+# Süreyi saniyeye çevir
 def parse_sure(s: str) -> int:
     matches = re.findall(r"(\d+)\s*(saniye|sn|dakika|dk|saat|sa)", s.lower())
     total_seconds = 0
@@ -70,17 +71,18 @@ async def takip_et(_, msg):
             user_data[key]["grant_count"] += 1
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
-
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn boyunca çıkartma ve GIF izni verildi.")
 
             try:
+                print(f"[GRANT] Kullanıcı: {uid} / Seviye: {seviye}")
                 izin_ver = ChatPermissions(
                     can_send_messages=True,
                     can_send_stickers=True,
                     can_send_animations=True
                 )
                 await app.restrict_chat_member(cid, uid, izin_ver)
-                await msg.reply("✅ Medya izni verildi.")
+                await msg.reply("✅ İzin verildi: sadece çıkartma + GIF")
+                print("[INFO] İzin verildi.")
 
                 await asyncio.sleep(lim["süre"])
 
@@ -91,8 +93,9 @@ async def takip_et(_, msg):
                 )
                 await app.restrict_chat_member(cid, uid, izin_kisitla)
                 await msg.reply("⏳ Medya iznin sona erdi.")
+                print("[INFO] İzin süresi doldu, kısıtlama geri getirildi.")
             except Exception as e:
-                print("Telegram izin hatası:", e)
+                print(f"[ERROR] Telegram izin veremedi: {e}")
                 await msg.reply("❌ Telegram izin veremedi.")
 
             save_json(USERDATA_FILE, convert_keys_to_str(user_data))
@@ -127,26 +130,24 @@ async def buton_yanitla(_, cb: CallbackQuery):
         butonlar = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         await cb.message.edit_text(
             "**🆘 Yardım Menüsü:**\n\n"
-            "🔹 `/seviyeayar` - Seviye ayarla\n"
-            "🔹 `/hakayarla` - Günlük hak belirle\n"
-            "🔹 `/verisil` - Tüm verileri sıfırla\n"
-            "🔹 `/seviyelistesi` - Tüm seviyeleri listele\n"
-            "🔹 `/durum` - Kendi seviyeni gör\n"
-            "🔹 `/yetkiver` - Yetki ver\n"
-            "🔹 `/yetkial` - Yetki al\n",
+            "🔹 `/seviyeayar` - Seviye ayarı yapar.\n"
+            "🔹 `/hakayarla` - Günlük medya hakkı belirler.\n"
+            "🔹 `/verisil` - Verileri sıfırlar.\n"
+            "🔹 `/durum` - Kendi seviyeni gösterir.\n"
+            "🔹 `/yetkiver`, `/yetkial` - Yetki yönetimi.\n",
             reply_markup=butonlar
         )
     elif data == "limits":
         if not limits:
-            await cb.message.edit_text("⚠️ Ayarlanmış seviye yok.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+            await cb.message.edit_text("⚠️ Ayarlanmış bir seviye yok.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
             return
-        metin = "📊 **Seviye Listesi:**\n\n"
+        metin = "📊 **Seviye Listesi:**\n"
         for seviye in sorted(limits.keys()):
             lim = limits[seviye]
-            metin += f"🔸 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn izin\n"
+            metin += f"🔸 Seviye {seviye}: {lim['msg']} mesaj → {lim['süre']} sn\n"
         await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "settings":
-        await cb.message.edit_text("⚙️ Ayarlar menüsü yakında...", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
+        await cb.message.edit_text("⚙️ Ayarlar menüsü geliştiriliyor.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "geri":
         await cb.message.delete()
         await menu(_, cb.message)
