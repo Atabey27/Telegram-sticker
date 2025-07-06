@@ -209,25 +209,41 @@ async def takip_et(_, msg):
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
-    try:
-        me = await app.get_me()
-        bot_yetkileri = await app.get_chat_member(msg.chat.id, me.id)
-        print("Bot yetkileri:", bot_yetkileri)
+            try:
+                print("Kısıtlama uygulanacak ID:", msg.from_user.id)
+                me = await app.get_chat_member(msg.chat.id, (await app.get_me()).id)
+                print("Bot yetkileri:", me)
 
-        izin_ver = ChatPermissions(
-            can_send_messages=True,
-            can_send_stickers=True,
-            can_send_animations=True
-        )
+                izin_ver = ChatPermissions(
+                    can_send_messages=True,
+                    can_send_other_messages=True,     # sticker & gif
+                    can_send_polls=False,
+                    can_send_media_messages=False,
+                    can_send_audios=False,
+                    can_send_documents=False,
+                    can_send_photos=False,
+                    can_send_videos=False
+                )
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
+                await msg.reply("✅ Medya izni verildi.")
 
-        await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
-        await msg.reply("✅ Medya izni verildi.")
+                await asyncio.sleep(lim["süre"])
 
-    except Exception as e:
-        import traceback
-        print("HATA:", e)
-        traceback.print_exc()
-        await msg.reply(f"❌ Telegram izin veremedi.\n\n🔎 Hata: `{e}`", quote=True)
+                izin_kisitla = ChatPermissions(
+                    can_send_messages=True,
+                    can_send_other_messages=False,    # sticker & gif kapalı
+                    can_send_polls=False,
+                    can_send_media_messages=False,
+                    can_send_audios=False,
+                    can_send_documents=False,
+                    can_send_photos=False,
+                    can_send_videos=False
+                )
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_kisitla)
+                await msg.reply("⏳ Medya iznin sona erdi.")
+            except Exception as e:
+                print("HATA:", e)
+                await msg.reply("❌ Telegram izin veremedi.")
 
     save_json(USERDATA_FILE, convert_keys_to_str(user_data))
     save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
