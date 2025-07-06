@@ -174,8 +174,29 @@ async def takip_et(_, msg):
             user_msg_count[key] = 0
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn sticker/GIF izni verildi.")
-            izin_ver = ChatPermissions(can_send_other_messages=True)
-            izin_kisitla = ChatPermissions(can_send_other_messages=False)
+
+            izin_ver = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_polls=False,
+                can_send_other_messages=True,
+                can_add_web_page_previews=False,
+                can_change_info=False,
+                can_invite_users=False,
+                can_pin_messages=False
+            )
+
+            izin_kisitla = ChatPermissions(
+                can_send_messages=False,
+                can_send_media_messages=False,
+                can_send_polls=False,
+                can_send_other_messages=False,
+                can_add_web_page_previews=False,
+                can_change_info=False,
+                can_invite_users=False,
+                can_pin_messages=False
+            )
+
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
                 await asyncio.sleep(lim["süre"])
