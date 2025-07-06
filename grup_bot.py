@@ -209,25 +209,36 @@ async def takip_et(_, msg):
             izin_sureleri[key] = now + lim["süre"]
             await msg.reply(f"🎉 Seviye {seviye} tamamlandı! {lim['süre']} sn medya izni verildi.")
 
-try:
-    print("Kısıtlama uygulanacak ID:", msg.from_user.id)
-    me = await app.get_chat_member(msg.chat.id, BOT_ID)
-    print("Bot yetkileri:", me)
+            try:
+                print("Kısıtlama uygulanacak ID:", msg.from_user.id)
+                me = await app.get_chat_member(msg.chat.id, (await app.get_me()).id)
+                print("Bot yetkileri:", me)
 
-    izin_ver = ChatPermissions(
-        can_send_messages=True,
-        can_send_stickers=True,
-        can_send_animations=True
-    )
-    await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
-    await msg.reply("✅ Medya izni verildi.")
+                izin_ver = ChatPermissions(
+                    can_send_messages=True,
+                    can_send_stickers=True,
+                    can_send_animations=True
+                )
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_ver)
+                await msg.reply("✅ Medya izni verildi.")
 
-except Exception as e:
-    print("HATA:", e)
-    await msg.reply("❌ Telegram izin veremedi.")
-save_json(USERDATA_FILE, convert_keys_to_str(user_data))
-save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
-save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+                await asyncio.sleep(lim["süre"])
+
+                izin_kisitla = ChatPermissions(
+                    can_send_messages=True,
+                    can_send_stickers=False,
+                    can_send_animations=False
+                )
+                await app.restrict_chat_member(msg.chat.id, msg.from_user.id, izin_kisitla)
+                await msg.reply("⏳ Süre doldu, medya izni kaldırıldı.")
+
+            except Exception as e:
+                print("HATA:", e)
+                await msg.reply("❌ Telegram izin veremedi.")
+
+            save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+            save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+            save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
 
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
