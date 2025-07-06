@@ -176,8 +176,7 @@ async def about_info(_, msg):
 @app.on_message(filters.group & ~filters.service)
 async def takip_et(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
-    me = await app.get_chat_member(cid, uid)
-    if me.status in ("administrator", "creator"): return
+    if uid in yetkili_adminler: return  # adminler tamamen hariç
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
