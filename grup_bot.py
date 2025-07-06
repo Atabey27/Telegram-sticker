@@ -246,7 +246,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             "• Kullanıcıları kısıtlama (mute/izin verme)\n"
             "• Mesaj silme\n\n"
             "🔧 Bu izinleri **grup ayarlarından** bana vermezsen görevimi yapamam.\n"
-            "`/menu` komutu ile başlayabilirsin."
+            "`\n/menu` komutu ile başlayabilirsin."
         )
 
 print("🚀 Bot başlatılıyor...")
