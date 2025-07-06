@@ -238,7 +238,7 @@ async def takip_et(_, msg):
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     if cmu.new_chat_member and cmu.new_chat_member.user.id == (await app.get_me()).id:
         await app.send_message(cmu.chat.id,
-            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.")
+            "👋 Merhaba! Ben aktiflik takip botuyum.\nMesaj atarak seviye atla, sticker/GIF izni kazan!\n/menu yazarak başla.Çalışmam için Lütfen bana Kullanıcı yasaklama ve Mesaj silmesi yetkisi verin")
 
 print("🚀 Bot başlatılıyor...")
 app.run()
