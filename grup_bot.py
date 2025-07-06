@@ -100,13 +100,13 @@ async def buton(_, cb: CallbackQuery):
 async def set_limit(_, msg):
     if not is_authorized(msg.from_user.id): return
     try:
-        _, seviye, mesaj, birim = msg.text.split()
-        limits[int(seviye)] = {"msg": int(mesaj), "süre": parse_time(mesaj, birim)}
+        _, seviye, mesaj, süre_deger, süre_birim = msg.text.split()
+        sure_saniye = parse_time(int(süre_deger), süre_birim)
+        limits[int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
         save_json(LIMITS_FILE, limits)
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
     except:
-        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [saniye|dakika|saat]")
-
+        await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre] [saniye|dakika|saat]")
 @app.on_message(filters.command("hakayarla"))
 async def set_grant(_, msg):
     if not is_authorized(msg.from_user.id): return
