@@ -5,6 +5,7 @@ import asyncio
 import time
 import json
 import os
+import ast
 from dotenv import load_dotenv
 
 def convert_keys_to_str(d): return {str(k): v for k, v in d.items()}
@@ -27,8 +28,19 @@ def save_json(f, d): json.dump(d, open(f, "w", encoding="utf-8"), indent=4)
 
 limits = {int(k): v for k, v in load_json(LIMITS_FILE, {}).items()}
 user_data = load_json(USERDATA_FILE, {})
-user_msg_count = {eval(k): v for k, v in load_json(COUNTS_FILE, {}).items()}
-izin_sureleri = {eval(k): v for k, v in load_json(IZIN_FILE, {}).items()}
+
+try:
+    user_msg_count = {ast.literal_eval(k): v for k, v in load_json(COUNTS_FILE, {}).items()}
+except Exception as e:
+    print("❌ counts.json hatası:", e)
+    user_msg_count = {}
+
+try:
+    izin_sureleri = {ast.literal_eval(k): v for k, v in load_json(IZIN_FILE, {}).items()}
+except Exception as e:
+    print("❌ izinler.json hatası:", e)
+    izin_sureleri = {}
+
 yetkili_adminler = set(load_json(ADMINS_FILE, [admin_id]))
 max_grant = 2
 
