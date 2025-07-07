@@ -26,7 +26,7 @@ ADMINS_FILE = "admins.json"
 def load_json(f, d): return json.load(open(f, "r", encoding="utf-8")) if os.path.exists(f) else d
 def save_json(f, d): json.dump(d, open(f, "w", encoding="utf-8"), indent=4)
 
-limits = {int(k): v for k, v in load_json(LIMITS_FILE, {}).items()}
+limits = {int(k): {int(sk): sv for sk, sv in v.items()} for k, v in load_json(LIMITS_FILE, {}).items()}
 user_data = load_json(USERDATA_FILE, {})
 user_msg_count = {str_tuple_to_tuple(k): v for k, v in load_json(COUNTS_FILE, {}).items()}
 izin_sureleri = {str_tuple_to_tuple(k): v for k, v in load_json(IZIN_FILE, {}).items()}
@@ -76,12 +76,13 @@ async def buton(_, cb: CallbackQuery):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
     elif data == "limits":
-        if not limits:
+        cid = cb.message.chat.id
+        if cid not in limits or not limits[cid]:
             await cb.message.edit_text("⚠️ Ayarlanmış seviye yok.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
             return
         text = "📊 **Seviye Listesi:**\n\n"
-        for s in sorted(limits.keys()):
-            l = limits[s]
+        for s in sorted(limits[cid].keys()):
+            l = limits[cid][s]
             text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn izin\n"
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
     elif data == "settings":
@@ -104,8 +105,11 @@ async def set_limit(_, msg):
     try:
         _, seviye, mesaj, süre_deger, süre_birim = msg.text.split()
         sure_saniye = parse_time(int(süre_deger), süre_birim)
-        limits[int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
-        save_json(LIMITS_FILE, limits)
+        cid = msg.chat.id
+        if cid not in limits:
+            limits[cid] = {}
+        limits[cid][int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
+        save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
     except:
         await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre] [saniye|dakika|saat]")
@@ -129,18 +133,6 @@ async def reset_all(_, msg):
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Tüm kullanıcı verileri silindi.")
 
-@app.on_message(filters.command("seviyelistesi"))
-async def list_limits(_, msg):
-    if not is_authorized(msg.from_user.id): return
-    if not limits:
-        await msg.reply("⚠️ Henüz seviye ayarı yapılmamış.")
-        return
-    text = "📋 **Seviye Listesi:**\n"
-    for s in sorted(limits.keys()):
-        l = limits[s]
-        text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn\n"
-    await msg.reply(text)
-
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg):
     uid, cid = msg.from_user.id, msg.chat.id
@@ -148,7 +140,7 @@ async def user_status(_, msg):
     if key not in user_data: return await msg.reply("ℹ️ Kayıtlı verin yok.")
     veri = user_data[key]
     sev = veri["seviye"]
-    gerek = limits.get(sev, {}).get("msg", 0)
+    gerek = limits.get(cid, {}).get(sev, {}).get("msg", 0)
     atilan = user_msg_count.get((cid, uid), 0)
     kalan = max(0, gerek - atilan)
     await msg.reply(f"👤 **Durum Bilgin:**\n🔹 Seviye: {sev}\n📨 Mesaj: {atilan}/{gerek}\n⏳ Kalan: {kalan}\n🎁 Hak: {veri['grant_count']}/{max_grant}")
@@ -197,8 +189,9 @@ async def takip_et(_, msg):
         user_msg_count[(cid, uid)] = 0
     if now < izin_sureleri.get((cid, uid), 0): return
     user_msg_count[(cid, uid)] += 1
-    for seviye in sorted(limits.keys()):
-        lim = limits[seviye]
+    grup_limitleri = limits.get(cid, {})
+    for seviye in sorted(grup_limitleri.keys()):
+        lim = grup_limitleri[seviye]
         if user_msg_count[(cid, uid)] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
             user_data[key]["seviye"] = seviye
             user_data[key]["grant_count"] += 1
