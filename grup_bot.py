@@ -5,11 +5,11 @@ import asyncio
 import time
 import json
 import os
-import ast
 from dotenv import load_dotenv
 
 def convert_keys_to_str(d): return {str(k): v for k, v in d.items()}
 def parse_time(val, unit): return int(val) * {"saniye": 1, "dakika": 60, "saat": 3600}.get(unit, 1)
+def str_tuple_to_tuple(s): return tuple(map(int, s.strip("()").split(",")))
 
 load_dotenv()
 api_id = int(os.getenv("API_ID"))
@@ -28,19 +28,8 @@ def save_json(f, d): json.dump(d, open(f, "w", encoding="utf-8"), indent=4)
 
 limits = {int(k): v for k, v in load_json(LIMITS_FILE, {}).items()}
 user_data = load_json(USERDATA_FILE, {})
-
-try:
-    user_msg_count = {ast.literal_eval(k): v for k, v in load_json(COUNTS_FILE, {}).items()}
-except Exception as e:
-    print("❌ counts.json hatası:", e)
-    user_msg_count = {}
-
-try:
-    izin_sureleri = {ast.literal_eval(k): v for k, v in load_json(IZIN_FILE, {}).items()}
-except Exception as e:
-    print("❌ izinler.json hatası:", e)
-    izin_sureleri = {}
-
+user_msg_count = {str_tuple_to_tuple(k): v for k, v in load_json(COUNTS_FILE, {}).items()}
+izin_sureleri = {str_tuple_to_tuple(k): v for k, v in load_json(IZIN_FILE, {}).items()}
 yetkili_adminler = set(load_json(ADMINS_FILE, [admin_id]))
 max_grant = 2
 
@@ -160,7 +149,7 @@ async def user_status(_, msg):
     veri = user_data[key]
     sev = veri["seviye"]
     gerek = limits.get(sev, {}).get("msg", 0)
-    atilan = user_msg_count.get(key, 0)
+    atilan = user_msg_count.get((cid, uid), 0)
     kalan = max(0, gerek - atilan)
     await msg.reply(f"👤 **Durum Bilgin:**\n🔹 Seviye: {sev}\n📨 Mesaj: {atilan}/{gerek}\n⏳ Kalan: {kalan}\n🎁 Hak: {veri['grant_count']}/{max_grant}")
 
@@ -183,7 +172,7 @@ async def remove_admin(_, msg):
 
 @app.on_message(filters.command("hakkinda"))
 async def about_info(_, msg):
-    await msg.reply("🤖 Aktiflik Botu\nKullanıcıların mesajlarıyla seviye atlamasını sağlar ve süreli medya izni verir.\n🛠 Geliştirici: @Atabey27")
+    await msg.reply("🤖 Medya Kontrol Botu\nMesaj sayısına göre medya erişimi verir.\n🛠 Geliştirici: @Atabey27")
 
 @app.on_message(filters.private & filters.command("start"))
 async def start_command(_, msg):
@@ -191,8 +180,8 @@ async def start_command(_, msg):
         [InlineKeyboardButton("➕ Gruba Ekle", url=f"https://t.me/{(await app.get_me()).username}?startgroup=true")],
     ])
     await msg.reply(
-        "👋 Selam! Ben aktiflik botuyum. Beni bir gruba ekleyerek mesajlara göre kullanıcıları takip edebilirim.\n\n"
-        "👇 Hemen aşağıdan beni grubuna ekle:",
+        "👋 Selam! Ben Medya Kontrol botuyum. Mesajlara göre medya izni verir, pasifliği bitiririm.\n\n"
+        "👇 Aşağıdan beni grubuna ekle:",
         reply_markup=btn
     )
 
@@ -205,16 +194,16 @@ async def takip_et(_, msg):
     today = str(datetime.now().date())
     if key not in user_data or user_data[key]["date"] != today:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
-        user_msg_count[key] = 0
-    if now < izin_sureleri.get(key, 0): return
-    user_msg_count[key] += 1
+        user_msg_count[(cid, uid)] = 0
+    if now < izin_sureleri.get((cid, uid), 0): return
+    user_msg_count[(cid, uid)] += 1
     for seviye in sorted(limits.keys()):
         lim = limits[seviye]
-        if user_msg_count[key] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
+        if user_msg_count[(cid, uid)] >= lim["msg"] and seviye > user_data[key]["seviye"] and user_data[key]["grant_count"] < max_grant:
             user_data[key]["seviye"] = seviye
             user_data[key]["grant_count"] += 1
-            user_msg_count[key] = 0
-            izin_sureleri[key] = now + lim["süre"]
+            user_msg_count[(cid, uid)] = 0
+            izin_sureleri[(cid, uid)] = now + lim["süre"]
             await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. {lim['süre']} sn sticker/GIF izni verildi.")
             izin_ver = ChatPermissions(
                 can_send_messages=True,
@@ -258,7 +247,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             "• Kullanıcıları kısıtlama (mute/izin verme)\n"
             "• Mesaj silme\n\n"
             "🔧 Bu izinleri **grup ayarlarından** bana vermezsen görevimi yapamam.\n"
-            "`\n/menu` komutu ile başlayabilirsin."
+            "`/menu` komutu ile başlayabilirsin."
         )
 
 print("🚀 Bot başlatılıyor...")
