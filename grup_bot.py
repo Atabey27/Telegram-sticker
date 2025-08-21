@@ -399,8 +399,8 @@ async def takip_et(_, msg: Message):
                 await app.restrict_chat_member(cid, uid, izin_kisitla)
                 await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
+            # sadece konsola yaz, gruba mesaj atma
                 print("HATA:", e)
-                await msg.reply(f"❌ Telegram izinleri uygulanamadı:\n{e}")
 
     # kalıcı kaydet
     save_json(USERDATA_FILE, convert_keys_to_str(user_data))
