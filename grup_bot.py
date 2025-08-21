@@ -88,9 +88,13 @@ async def remove_group_admin(chat_id: int, user_id: int):
         group_admins[chat_id].remove(user_id)
         save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
 
-# ---------- /menu ----------
+# ---------- /menu (üyeler göremez) ----------
 @app.on_message(filters.command("menu"))
 async def menu(_, msg: Message):
+    cid = msg.chat.id
+    uid = msg.from_user.id
+    if msg.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, uid):
+        return
     btn = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
@@ -100,12 +104,15 @@ async def menu(_, msg: Message):
     ])
     await msg.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
 
-# ---------- callback ----------
+# ---------- callback (üyeler kullanamaz) ----------
 @app.on_callback_query()
 async def buton(_, cb: CallbackQuery):
-    data = cb.data
     cid = cb.message.chat.id
+    # grupta admin olmayanı engelle
+    if cb.message.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, cb.from_user.id):
+        return await cb.answer("Bu menü sadece yöneticilere açık.", show_alert=True)
 
+    data = cb.data
     if data == "kapat":
         await cb.message.delete()
         return
@@ -178,7 +185,7 @@ async def buton(_, cb: CallbackQuery):
         await cb.message.delete()
         await menu(_, cb.message)
 
-# ---------- komutlar ----------
+# ---------- komutlar (üyeler için kapalı; /durumum hariç) ----------
 @app.on_message(filters.command("seviyeayar"))
 async def set_limit(_, msg: Message):
     cid = msg.chat.id
@@ -216,7 +223,6 @@ async def reset_all(_, msg: Message):
     if not is_group_bot_admin(cid, uid):
         return
     # SADECE BU GRUBUN verilerini temizle
-    # user_data / counts / izinler tuple key'li: (cid, uid)
     keys_ud = [k for k in list(user_data.keys()) if k.startswith(f"({cid},")]
     for k in keys_ud:
         user_data.pop(k, None)
@@ -234,6 +240,7 @@ async def reset_all(_, msg: Message):
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Bu grubun kullanıcı verileri silindi.")
 
+# ---- ÜYELERE AÇIK TEK KOMUT: /durumum ----
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg: Message):
     uid, cid = msg.from_user.id, msg.chat.id
@@ -310,10 +317,13 @@ async def remove_admin_cmd(_, msg: Message):
     except Exception as e:
         await msg.reply(f"❌ Hata: {e}")
 
-# --- seviye listesi komutu (grup bazlı) ---
+# --- seviye listesi komutu (sadece admin) ---
 @app.on_message(filters.command("seviyelistesi"))
 async def seviyelistesi_cmd(_, msg: Message):
     cid = msg.chat.id
+    uid = msg.from_user.id
+    if msg.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, uid):
+        return
     if cid not in limits or not limits[cid]:
         return await msg.reply("⚠️ Bu grupta ayarlanmış seviye yok.")
     text = "📊 Seviye Listesi (Bu Grup):\n\n"
@@ -322,10 +332,15 @@ async def seviyelistesi_cmd(_, msg: Message):
         text += f"🔹 Seviye {s}: {l['msg']} mesaj → {l['süre']} sn izin\n"
     await msg.reply(text)
 
+# --- hakkinda (grupta sadece admin) ---
 @app.on_message(filters.command("hakkinda"))
 async def about_info(_, msg: Message):
+    if msg.chat.type in ("supergroup", "group"):
+        if not is_group_bot_admin(msg.chat.id, msg.from_user.id):
+            return
     await msg.reply("🤖 Medya Kontrol Botu\nMesaj sayısına göre medya erişimi verir.\n🛠 Geliştirici: @Ankateamiletisim")
 
+# --- start (özelde serbest) ---
 @app.on_message(filters.private & filters.command("start"))
 async def start_command(_, msg: Message):
     btn = InlineKeyboardMarkup([
@@ -341,6 +356,7 @@ async def start_command(_, msg: Message):
 @app.on_message(filters.group & ~filters.service)
 async def takip_et(_, msg: Message):
     uid, cid = msg.from_user.id, msg.chat.id
+    # bot-admin’lerin mesajlarını saymıyoruz
     if is_group_bot_admin(cid, uid):
         return
 
@@ -399,7 +415,7 @@ async def takip_et(_, msg: Message):
                 await app.restrict_chat_member(cid, uid, izin_kisitla)
                 await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
-            # sadece konsola yaz, gruba mesaj atma
+                # sadece logla; gruba hata basma
                 print("HATA:", e)
 
     # kalıcı kaydet
