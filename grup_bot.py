@@ -54,6 +54,24 @@ _raw_grants = load_json(GRANTS_FILE, {})
 group_max_grant = {int(k): int(v) for k, v in _raw_grants.items()}
 DEFAULT_MAX_GRANT = 2
 
+# ---------- varsayılan seviye (0 -> 1 mesaj / 1 saniye) ----------
+def ensure_default_level_for(chat_id: int):
+    """Bu grup için seviye 0 kuralını garanti et."""
+    if chat_id not in limits:
+        limits[chat_id] = {}
+    if 0 not in limits[chat_id]:
+        limits[chat_id][0] = {"msg": 1, "süre": 1}
+        save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
+
+# Bot açılırken mevcut gruplara uygula
+_any_change = False
+for _cid in list(limits.keys()):
+    if 0 not in limits[_cid]:
+        limits[_cid][0] = {"msg": 1, "süre": 1}
+        _any_change = True
+if _any_change:
+    save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
+
 # ---------- bot ----------
 app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
 
@@ -125,10 +143,12 @@ async def buton(_, cb: CallbackQuery):
             " ➡️ Seviye 2 için 10 mesaj ve 1 dakika medya izni tanımlar.\n\n"
             "🎯 /hakayarla [adet]\n"
             " ➡️ (Grup bazlı) Günlük maksimum izin sayısını belirler.\n\n"
+            "🧹 /verisil\n"
+            " ➡️ Bu grubun kullanıcı verilerini sıfırlar. (Sadece bot-admin/owner)\n\n"
+            "🗑️ /seviyelerisil\n"
+            " ➡️ Bu gruptaki TÜM seviye tanımlarını siler (varsayılan Seviye 0 kalır).\n\n"
             "📊 /seviyelistesi\n"
             " ➡️ Ayarlanmış tüm seviyeleri listeler.\n\n"
-            "🧹 /verisil\n"
-            " ➡️ Tüm kullanıcı verilerini sıfırlar. (Sadece bot-admin/owner)\n\n"
             "📌 /durumum\n"
             " ➡️ Seviyeniz, kalan mesaj ve hak durumunuz.\n\n"
             "🛡️ /yetkiver @kullanici (veya mesajına yanıtla)\n"
@@ -140,6 +160,8 @@ async def buton(_, cb: CallbackQuery):
         )
 
     elif data == "limits":
+        # varsayılanı garanti et, sonra göster
+        ensure_default_level_for(cid)
         if cid not in limits or not limits[cid]:
             await cb.message.edit_text(
                 "⚠️ Bu grupta ayarlanmış seviye yok.",
@@ -157,7 +179,8 @@ async def buton(_, cb: CallbackQuery):
         await cb.message.edit_text(
             f"⚙️ Ayarlar (Grup Bazlı)\n\n"
             f"🎁 Günlük hak: {gmax}\n"
-            "➡️ /hakayarla [adet]",
+            "➡️ /hakayarla [adet]\n"
+            "➡️ /seviyelerisil",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
 
@@ -197,6 +220,8 @@ async def set_limit(_, msg: Message):
         sure_saniye = parse_time(int(süre_deger), süre_birim)
         if cid not in limits:
             limits[cid] = {}
+        # varsayılanı garanti et
+        ensure_default_level_for(cid)
         limits[cid][int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
         save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
@@ -240,6 +265,21 @@ async def reset_all(_, msg: Message):
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
     await msg.reply("✅ Bu grubun kullanıcı verileri silindi.")
 
+# --- YENİ KOMUT: seviyeleri sil (sadece admin) ---
+@app.on_message(filters.command("seviyelerisil"))
+async def seviyeleri_sil(_, msg: Message):
+    cid = msg.chat.id
+    uid = msg.from_user.id
+    if not is_group_bot_admin(cid, uid):
+        return
+    # O grubun seviye tanımlarını tamamen sil
+    if cid in limits:
+        limits.pop(cid, None)
+        save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
+    # güvenlik: varsayılanı geri kur
+    ensure_default_level_for(cid)
+    await msg.reply("🗑️ Bu gruptaki tüm seviye ayarları silindi. Varsayılan **Seviye 0 (1 mesaj / 1 sn)** aktif.")
+
 # ---- ÜYELERE AÇIK TEK KOMUT: /durumum ----
 @app.on_message(filters.command("durumum"))
 async def user_status(_, msg: Message):
@@ -262,6 +302,9 @@ async def user_status(_, msg: Message):
         user_msg_count[(cid, uid)] = 0
         save_json(USERDATA_FILE, convert_keys_to_str(user_data))
         save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+
+    # varsayılan seviye’yi garanti et
+    ensure_default_level_for(cid)
 
     veri = user_data[key]
     sev = veri["seviye"]
@@ -324,6 +367,8 @@ async def seviyelistesi_cmd(_, msg: Message):
     uid = msg.from_user.id
     if msg.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, uid):
         return
+    # varsayılan seviye’yi garanti et
+    ensure_default_level_for(cid)
     if cid not in limits or not limits[cid]:
         return await msg.reply("⚠️ Bu grupta ayarlanmış seviye yok.")
     text = "📊 Seviye Listesi (Bu Grup):\n\n"
@@ -338,7 +383,7 @@ async def about_info(_, msg: Message):
     if msg.chat.type in ("supergroup", "group"):
         if not is_group_bot_admin(msg.chat.id, msg.from_user.id):
             return
-    await msg.reply("🤖 Medya Kontrol Botu\nMesaj sayısına göre medya erişimi verir.\n🛠 Geliştirici: @Ankateamiletisim")
+    await msg.reply("🤖 Medya Kontrol Botu\nMesaj sayısına göre medya izni verir.\n🛠 Geliştirici: @Ankateamiletisim")
 
 # --- start (özelde serbest) ---
 @app.on_message(filters.private & filters.command("start"))
@@ -359,6 +404,9 @@ async def takip_et(_, msg: Message):
     # bot-admin’lerin mesajlarını saymıyoruz
     if is_group_bot_admin(cid, uid):
         return
+
+    # varsayılan seviye’yi garanti et
+    ensure_default_level_for(cid)
 
     key = f"({cid}, {uid})"
     now = time.time()
@@ -432,6 +480,8 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
         if cmu.new_chat_member and cmu.new_chat_member.user.id == me.id:
             cid = cmu.chat.id
             await ensure_group_admin_bucket(cid)
+            # grup varsayılan seviyesini de garanti et
+            ensure_default_level_for(cid)
 
             adder_id = None
             # ekleyen kullanıcıyı bulmayı dene
@@ -484,6 +534,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
                 "✅ Sağlıklı çalışmam için aşağıdaki izinler gerekli:\n"
                 "• Kullanıcıları kısıtlama (Ban yetkisi)\n"
                 "• Mesaj silme\n\n"
+                "• İzinlerden çıkartma ve gif iznini aktif ediniz.\n\n"
                 "🔧 Bu izinleri grup ayarlarından bana vermezsen görevimi yapamam.\n"
                 "/menu komutu ile başlayabilirsin."
             )
