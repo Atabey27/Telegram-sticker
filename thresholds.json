@@ -1,0 +1,9 @@
+{
+    "HARD_THRESHOLD": 0.85,
+    "SOFT_THRESHOLD": 0.1,
+    "SOFT_HITS_REQUIRED": 1,
+    "MINSIDE": 768,
+    "GIFMAX": 10,
+    "GIFSTEP": 1,
+    "KISS_THRESHOLD": 0.1
+}
