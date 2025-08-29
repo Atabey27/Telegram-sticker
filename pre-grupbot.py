@@ -357,7 +357,10 @@ async def buton(_, cb: CallbackQuery):
             "📌 /durumum\n"
             " ➡️ Seviyeniz ve kalan hak durumunuz.\n\n"
             "➕ /yetkiver & ➖ /yetkial\n"
-            " ➡️ Bot-admin ekle/çıkar.",
+            " ➡️ Bot-admin ekle/çıkar.\n\n"
+            "🆘 /hakkinda\n"
+            " ➡️ Bot hakkında bilgi verir.",
+
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
 
@@ -504,7 +507,8 @@ async def buton(_, cb: CallbackQuery):
             "• Otomatik +18 içerik temizleme\n"
             "• Akıllı spam koruma sistemi\n"
             "• Kolay yönetim paneli\n\n"
-            "⚡ **/menu** yazarak hemen başlayabilirsiniz!"
+            "⚡ **/menu** yazarak hemen başlayabilirsiniz!\n\n"
+            "⚡ **İletişim için lütfen @Ankateamiletisim bağlantı kurunuz.**"
         )
         
         await cb.message.reply(
