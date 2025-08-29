@@ -9,7 +9,6 @@ import os
 from dotenv import load_dotenv
 import random
 
-
 # ---- NSFW/Sticker analiz bağımlılıkları
 from nudenet import NudeDetector
 from PIL import Image
@@ -54,13 +53,57 @@ def saniyeyi_donustur(saniye):
     return metin.strip()
 
 
-DEBUG = False   # en üste koy
 
+DEBUG = False
+
+
+# ---------- genel ayarlar ----------
+
+# ---------- HAZIR AYARLAR ----------
+HAZIR_AYARLAR = {
+    "standart": {
+        "limits": {
+            "0": {"msg": 1, "süre": 1},
+            "1": {"msg": 15, "süre": 180},
+            "2": {"msg": 50, "süre": 300},
+            "3": {"msg": 100, "süre": 420},
+            "4": {"msg": 150, "süre": 1800},
+            "5": {"msg": 250, "süre": 3600},
+            "6": {"msg": 350, "süre": 4500},
+            "7": {"msg": 450, "süre": 5400},
+            "8": {"msg": 550, "süre": 6300},
+            "9": {"msg": 750, "süre": 6600},
+            "10": {"msg": 1000, "süre": 7200}
+        },
+        "grant": 10  # Günlük maksimum hak
+    },
+    "hızlı": {
+        "limits": {
+            "0": {"msg": 1, "süre": 1},
+            "1": {"msg": 10, "süre": 120},
+            "2": {"msg": 30, "süre": 240},
+            "3": {"msg": 60, "süre": 360},
+            "4": {"msg": 100, "süre": 600}
+        },
+        "grant": 5  # Günlük maksimum hak
+    },
+    "yavaş": {
+        "limits": {
+            "0": {"msg": 1, "süre": 1},
+            "1": {"msg": 20, "süre": 300},
+            "2": {"msg": 50, "süre": 600},
+            "3": {"msg": 100, "süre": 1200},
+            "4": {"msg": 200, "süre": 2400},
+            "5": {"msg": 500, "süre": 3600}
+        },
+        "grant": 3  # Günlük maksimum hak
+    }
+}
 
 # ---------- env ----------
 load_dotenv()
 api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")                 # <-- string olmalı
+api_hash = os.getenv("API_HASH")
 bot_token = os.getenv("BOT_TOKEN")
 admin_id = int(os.getenv("OWNER_ID"))
 
@@ -72,7 +115,8 @@ IZIN_FILE = "izinler.json"
 ADMINS_FILE = "admins.json"
 GRANTS_FILE = "grants.json"
 GLOBAL_SCORE_FILE = "global_score.json"
-THRESHOLDS_FILE = "thresholds.json"   # <-- EKLENDİ
+THRESHOLDS_FILE = "thresholds.json"
+ANNOUNCE_FILE = "announce.json"
 
 # ---------- veriyi yükle ----------
 limits = {int(k): {int(sk): sv for sk, sv in v.items()} for k, v in load_json(LIMITS_FILE, {}).items()}
@@ -84,7 +128,11 @@ group_admins = {int(k): set(v) for k, v in _raw_admins.items()}
 _raw_grants = load_json(GRANTS_FILE, {})
 group_max_grant = {int(k): int(v) for k, v in _raw_grants.items()}
 DEFAULT_MAX_GRANT = 2
-
+# ---------- SPAM KORUMA ----------
+user_media_bucket = {}  # { (chat_id, user_id): {"tokens": X, "last_update": timestamp} }
+MEDIA_BUCKET_MAX = 1    # 5 saniye içinde maksimum medya sayısı
+MEDIA_BUCKET_REFILL = 0.3333 # Her saniye yenilenen token sayısı (daha yavaş)
+last_warning_time = {}  # Son uyarı zamanlarını tutar
 # ---------- global güvenlik skoru ----------
 DEFAULT_SCORE = 0.90
 global_security_score = DEFAULT_SCORE
@@ -101,16 +149,16 @@ def save_global_score(new_score: float):
     global_security_score = float(new_score)
     save_json(GLOBAL_SCORE_FILE, {"score": global_security_score})
 
-# ---------- (EKLENDİ) NSFW thresholds kalıcı ayarları ----------
+# ---------- NSFW thresholds kalıcı ayarları ----------
 DEFAULT_THRESHOLDS = {
-    "HARD_THRESHOLD": 0.85,   # tek karede kesin sil
-    "SOFT_THRESHOLD": 0.55,   # şüpheli kare eşiği
-    "SOFT_HITS_REQUIRED": 2,  # şüpheli kare sayısı
-    # ---- yeni dinamikler ----
-    "MINSIDE": 512,               # preprocess kısa kenar
-    "GIFMAX": 8,                  # video/gif için max alınacak kare
-    "GIFSTEP": 5,                 # her kaç karede bir örnek
-    "KISS_THRESHOLD": 0.35        # kiss skoru eşiği
+    "HARD_THRESHOLD": 0.85,
+    "SOFT_THRESHOLD": 0.55,
+    "SOFT_HITS_REQUIRED": 2,
+    "MIN_SIDE": 512,
+    "GIF_MAX_FRAMES": 6,
+    "GIF_STEP": 2,
+    "KISS_THRESHOLD": 0.33,
+    "DEBUG": False
 }
 def load_thresholds():
     if os.path.exists(THRESHOLDS_FILE):
@@ -127,17 +175,18 @@ def load_thresholds():
 def save_thresholds(d):
     out = {k: d.get(k, DEFAULT_THRESHOLDS[k]) for k in DEFAULT_THRESHOLDS}
     save_json(THRESHOLDS_FILE, out)
-THR = load_thresholds()  # aktif değerler
+THR = load_thresholds()
 
 def thresholds_summary():
-    return (f"⚙️ Eşikler:\n"
+    return (f"⚙️ Eşikler/Ayarlar:\n"
             f"• HARD: {THR['HARD_THRESHOLD']}\n"
             f"• SOFT: {THR['SOFT_THRESHOLD']}\n"
             f"• HITS: {THR['SOFT_HITS_REQUIRED']}\n"
-            f"• MINSIDE: {THR['MINSIDE']}\n"
-            f"• GIFMAX: {THR['GIFMAX']}\n"
-            f"• GIFSTEP: {THR['GIFSTEP']}\n"
-            f"• KISS: {THR['KISS_THRESHOLD']}")
+            f"• MIN_SIDE: {THR['MIN_SIDE']}\n"
+            f"• GIF_MAX_FRAMES: {THR['GIF_MAX_FRAMES']}\n"
+            f"• GIF_STEP: {THR['GIF_STEP']}\n"
+            f"• KISS_THRESHOLD: {THR['KISS_THRESHOLD']}\n"
+            f"• DEBUG: {THR['DEBUG']}")
 
 def _try_float(x):
     try:
@@ -145,14 +194,28 @@ def _try_float(x):
     except:
         return None
 
+# ---------- /bilgi kalıcılığı (grup bazlı) ----------
+announce_map = load_json(ANNOUNCE_FILE, {})
+def get_announce(chat_id: int) -> bool:
+    return bool(announce_map.get(str(chat_id), True))
+def set_announce(chat_id: int, val: bool):
+    announce_map[str(chat_id)] = bool(val)
+    save_json(ANNOUNCE_FILE, announce_map)
+
+def announce_text(chat_id: int) -> str:
+    return "Açık" if get_announce(chat_id) else "Kapalı"
+
 # ---------- varsayılan seviye (0 -> 1 mesaj / 1 saniye) ----------
 def ensure_default_level_for(chat_id: int):
+    """Varsayılan seviyeyi ekler, ancak sadece gerçekten yoksa"""
     if chat_id not in limits:
         limits[chat_id] = {}
+    # Sadece seviye 0 yoksa ekle
     if 0 not in limits[chat_id]:
         limits[chat_id][0] = {"msg": 1, "süre": 1}
         save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
 
+# Başlangıçta tüm gruplar için varsayılan seviyeyi kontrol et
 _any_change = False
 for _cid in list(limits.keys()):
     if 0 not in limits[_cid]:
@@ -164,16 +227,43 @@ if _any_change:
 # ---------- bot ----------
 app = Client("bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
 
-# ---------- yetki kontrol ----------
+# ---------- YETKİ KONTROL MEKANİZMASI ----------
+
+def is_group_bot_admin(chat_id: int, user_id: int) -> bool:
+    """Sadece botun kendi özel yönetici listesini kontrol eder."""
+    if user_id == admin_id: return True
+    admins = group_admins.get(chat_id, set())
+    return user_id in admins
+
+async def is_user_authorized(client, chat_id, user_id):
+    """NİHAİ KONTROL: Bot sahibi, özel bot yöneticisi VEYA Telegram grup yöneticisi olup olmadığını kontrol eder."""
+    
+    # 1. Bot Sahibi mi?
+    if user_id == admin_id:
+        return True
+    
+    # 2. Bota özel yönetici listesinde mi? (/yetkiver ile eklenen)
+    if is_group_bot_admin(chat_id, user_id):
+        return True
+    
+    # 3. Telegram grubunun kurucusu veya yöneticisi mi?
+    try:
+        member = await client.get_chat_member(chat_id, user_id)
+        if member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR]:
+            return True
+    except Exception as e:
+        print(f"Yetki kontrolü sırasında hata: {e}")
+
+    return False
+
+
+# ---------- YETKİ YÖNETİMİ ----------
 def get_chat_max_grant(chat_id: int) -> int:
     return group_max_grant.get(chat_id, DEFAULT_MAX_GRANT)
 def set_chat_max_grant(chat_id: int, val: int):
     group_max_grant[chat_id] = int(val)
     save_json(GRANTS_FILE, {str(k): v for k, v in group_max_grant.items()})
-def is_group_bot_admin(chat_id: int, user_id: int) -> bool:
-    if user_id == admin_id: return True
-    admins = group_admins.get(chat_id, set())
-    return user_id in admins
+
 async def ensure_group_admin_bucket(chat_id: int):
     if chat_id not in group_admins:
         group_admins[chat_id] = set()
@@ -188,13 +278,13 @@ async def remove_group_admin(chat_id: int, user_id: int):
         group_admins[chat_id].remove(user_id)
         save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
 
-# ---------- /menu ----------
+# ---------- MENÜ VE BUTONLAR ----------
+
 @app.on_message(filters.command("menu"))
 async def menu(_, msg: Message):
-    cid = msg.chat.id
-    uid = msg.from_user.id
-    if msg.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, uid):
-        return
+    if msg.chat.type in ("supergroup", "group"):
+        if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+            return
     btn = InlineKeyboardMarkup([
         [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
@@ -204,326 +294,54 @@ async def menu(_, msg: Message):
     ])
     await msg.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
 
-# ================= NSFW TESPİT =================
+def build_settings_markup(chat_id: int):
+    gmax = get_chat_max_grant(chat_id)
+    text = (
+        f"⚙️ Ayarlar\n\n"
+        f"🛡️ **Global Güvenlik Seviyesi: {global_security_score}** (%{int(global_security_score*100)})\n"
+        f"{thresholds_summary()}\n"
+        f"🎁 Gruba Özel Günlük Hak: {gmax}\n\n"
+        "➡️ Değiştirmek için komutları kullanın:\n"
+        "`/guvenlik [değer]` (Sadece Bot Sahibi)\n"
+        "`/hakayarla [adet]`\n"
+        "`/minside`\n"
+        "`/gifmax`\n"
+        "`/gifstep`\n"
+        "`/kiss`\n"
+        "`/hard`\n"
+        "`/soft`\n"
+        "`/hits`\n\n"
+        "➡️ Gruplar için Hazır seviye ayarlarını uygulamak için`\n"
+        "`/ayaruygula [grup_id]` komutunu kullanın.(Sadece Bot Sahibi)"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"Bilgi Mesajları: {announce_text(chat_id)}", callback_data="toggle_announce")],
+        [InlineKeyboardButton("◀️ Geri", callback_data="geri")]
+    ])
+    return text, keyboard
 
-# --- OpenCV 'imread' polyfill (bazı build'lerde eksik çıkabiliyor)
-if not hasattr(cv2, "imread"):
-    try:
-        import imageio.v3 as iio
-        def _cv2_imread(path):
-            arr = iio.imread(path)
-            if arr.ndim == 2:
-                arr = np.stack([arr]*3, axis=-1)
-            # imageio RGB verir -> BGR'e çevir
-            return arr[:, :, ::-1].copy()
-        cv2.imread = _cv2_imread
-        print("cv2.imread polyfill aktif.")
-    except Exception as e:
-        print("cv2.imread polyfill kurulamıyor:", e)
-
-# NudeNet modelini yükle
-detector = NudeDetector()
-
-# Duyarlı gördüğümüz label seti
-NSFW_LABELS = {
-    "FEMALE_BREAST_EXPOSED",
-    "FEMALE_GENITALIA_EXPOSED",
-    "MALE_GENITALIA_EXPOSED",
-    "ANUS_EXPOSED",
-    "BUTTOCKS_EXPOSED",
-    # varyant isimler:
-    "EXPOSED_BREAST", "EXPOSED_GENITALIA", "EXPOSED_BUTTOCKS", "EXPOSED_ANUS",
-    # ekstra:
-    "BELLY_EXPOSED", "ARMPITS_EXPOSED", "FEET_EXPOSED",
-}
-
-def upscale_min_512(in_path: str) -> str:
-    try:
-        im = Image.open(in_path).convert("RGB")
-        w, h = im.size
-        m = min(w, h)
-        if m < 512:
-            scale = 512 / m
-            im = im.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
-        out = f"{in_path}.jpg"
-        im.save(out, "JPEG", quality=92)
-        return out
-    except Exception as e:
-        print("upscale_min_512 hata:", e)
-        return in_path
-
-def extract_webm_frames(path: str) -> list:
-    """ .webm / video stickerlardan 0%, 40%, 70% kare al """
-    outs = []
-    try:
-        cap = cv2.VideoCapture(path)
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if total <= 0:
-            # en azından 1 kare okumayı dene
-            ok, frame = cap.read()
-            if ok:
-                out = f"{path}_f0.jpg"
-                cv2.imwrite(out, frame)
-                outs.append(out)
-            cap.release()
-            return outs
-        picks = sorted(list({0, int(total*0.4), int(total*0.7)}))
-        for idx in picks:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, idx))
-            ok, frame = cap.read()
-            if not ok: continue
-            out = f"{path}_f{idx}.jpg"
-            cv2.imwrite(out, frame)
-            outs.append(out)
-        cap.release()
-    except Exception as e:
-        print("extract_webm_frames hata:", e)
-    return outs
-
-def extract_tgs_frames(path: str) -> list:
-    outs = []
-    if not LOTTIE_OK:
-        return outs
-    try:
-        anim = lottie_importers.import_tgs(path)
-        for f in [0, 5, 10]:
-            out_png = f"{path}_f{f}.png"
-            try:
-                lottie_exporters.export_png(anim, out_png, frame=f, scale=2.0)
-                outs.append(out_png)
-            except Exception:
-                pass
-    except Exception as e:
-        print("lottie hata:", e)
-    return outs
-
-def is_path_nsfw(img_path: str, threshold: float) -> bool:
-    try:
-        res = detector.detect(img_path) or []
-        max_score = 0.0
-        for d in res:
-            label = (d.get("label") or d.get("class") or "").upper()
-            score = float(d.get("score", 0.0))
-            if label in NSFW_LABELS or any(k in label for k in ["BREAST","GENITAL","BUTTOCK","ANUS"]):
-                max_score = max(max_score, score)
-        print(f"NudeNet: {os.path.basename(img_path)} max: {max_score}")
-        return max_score >= threshold
-    except Exception as e:
-        print("NudeNet detect hata:", e)
-        return False
-
-
-MIN_SIDE = 512               # en kısa kenarı en az 512 px yap
-# (ESKİ sabitler dursun ama karar mekanizması THR’den okur)
-HARD_THRESHOLD = 0.85
-SOFT_THRESHOLD = 0.55
-SOFT_HITS_REQUIRED = 2
-
-def preprocess_for_nudenet(in_path: str) -> str:
-    """
-    RGB JPEG'e çevir, en kısa kenarı >= 512 px olacak şekilde büyüt,
-    hafif keskinlik artır. NudeNet bu tip girdilerde daha stabil.
-    """
-    try:
-        im = Image.open(in_path).convert("RGB")
-        w, h = im.size
-        m = min(w, h)
-        # ---- dinamik MINSIDE ----
-        eff_min_side = int(THR.get("MINSIDE", MIN_SIDE))
-        if m < eff_min_side:
-            scale = eff_min_side / m
-            im = im.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
-
-        # hafif keskinlik + kontrast
-        im_np = np.array(im, dtype=np.uint8)
-        im_np = cv2.GaussianBlur(im_np, (0, 0), 1.0)
-        im_np = cv2.addWeighted(im_np, 1.5, im_np, -0.5, 0)
-
-        out = f"{in_path}.nudeprep.jpg"
-        Image.fromarray(im_np).save(out, "JPEG", quality=92)
-        return out
-    except Exception as e:
-        print("preprocess_for_nudenet hata:", e)
-        return in_path  # en kötü orijinali dön
-
-def extract_webm_frames(path: str, max_frames: int = 8) -> list[str]:
-    """
-    webm/mp4 için: sabit aralıklı + rastgele kareler.
-    """
-    outs = []
-    try:
-        cap = cv2.VideoCapture(path)
-        if not cap or not cap.isOpened():
-            raise RuntimeError("VideoCapture açılamadı")
-
-        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        if total <= 0:
-            # imageio fallback
-            try:
-                import imageio
-                import imageio_ffmpeg  # yalnızca ffmpeg var mı diye
-                r = imageio.get_reader(path)
-                idxs = list(range(0, len(r)))[:max_frames]
-                for i in idxs:
-                    frame = r.get_data(i)
-                    out = f"{path}_f{i}.jpg"
-                    cv2.imwrite(out, cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
-                    outs.append(out)
-                r.close()
-                return outs
-            except Exception as e:
-                print("imageio fallback hata:", e)
-                return outs
-
-        # ---- dinamik GIFMAX & GIFSTEP ----
-        eff_max = int(THR.get("GIFMAX", max_frames))
-        eff_step = max(1, int(THR.get("GIFSTEP", 5)))
-
-        base = set()
-        # step’li örnekleme
-        for i in range(0, total, eff_step):
-            base.add(i)
-            if len(base) >= eff_max:
-                break
-
-        # garanti olsun diye birkaç sabit nokta:
-        base |= {0, int(total*0.3) if total else 0, int(total*0.6) if total else 0, max(0, total-2)}
-
-        # max sınırı uygula
-        base = sorted(list(base))[:eff_max]
-
-        for i in base:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, i))
-            ok, frame = cap.read()
-            if not ok:
-                continue
-            out = f"{path}_f{i}.jpg"
-            cv2.imwrite(out, frame)
-            outs.append(out)
-        cap.release()
-    except Exception as e:
-        print("extract_webm_frames hata:", e)
-    return outs
-
-def nudenet_score_for(path: str) -> float:
-    """
-    Tek görsel için NudeNet'ten 'unsafe' skorların maksimumu.
-    (Mevcut detector.detect() mantığınla uyumlu)
-    """
-    try:
-        res = detector.detect(path) or []
-        mx = 0.0
-        for d in res:
-            label = (d.get("label") or d.get("class") or "").upper()
-            score = float(d.get("score", 0.0))
-            if any(k in label for k in ["BREAST", "GENITAL", "BUTTOCK", "ANUS", "EXPOSED"]):
-                mx = max(mx, score)
-        if DEBUG:
-            print(f"NudeNet: {os.path.basename(path)} max: {mx}")
-        return mx
-    except Exception as e:
-        if DEBUG:
-            print("NudeNet detect hata:", e)
-        return 0.0
-
-def should_delete(scores: list[float]) -> bool:
-    """
-    Karar:
-      - herhangi bir kare HARD_THRESHOLD’i (THR) geçerse sil
-      - ya da SOFT_THRESHOLD’i geçen kare sayısı >= SOFT_HITS_REQUIRED ise sil
-    """
-    if not scores:
-        return False
-    if max(scores) >= THR["HARD_THRESHOLD"]:
-        return True
-    soft_hits = sum(1 for s in scores if s >= THR["SOFT_THRESHOLD"])
-    return soft_hits >= int(THR["SOFT_HITS_REQUIRED"])
-
-
-
-@app.on_message(filters.group & filters.sticker)
-async def sticker_filter(_, msg: Message):
-    tmp = []
-    try:
-        downloaded_path = await app.download_media(msg.sticker)
-        tmp.append(downloaded_path)
-
-        candidate_images = []
-
-        if msg.sticker.is_video:
-            # webm/mp4 -> çok kare çek
-            frames = extract_webm_frames(downloaded_path, max_frames=5)
-            for f in frames:
-                tmp.append(f)
-                candidate_images.append(preprocess_for_nudenet(f))
-
-        elif msg.sticker.is_animated:
-            # .tgs -> lottie varsa birkaç frame çıkar (sende zaten var)
-            try:
-                from lottie import importers as lottie_importers
-                from lottie import exporters as lottie_exporters
-                anim = lottie_importers.import_tgs(downloaded_path)
-                for fidx in [0, 5, 10, 15]:
-                    out_png = f"{downloaded_path}_f{fidx}.png"
-                    lottie_exporters.export_png(anim, out_png, frame=fidx, scale=2.0)
-                    tmp.append(out_png)
-                    candidate_images.append(preprocess_for_nudenet(out_png))
-            except Exception as e:
-                print("lottie hata:", e)
-
-        else:
-            # statik .webp/.png -> tek görsel ama ön-işleme şart
-            pp = preprocess_for_nudenet(downloaded_path)
-            if pp != downloaded_path:
-                tmp.append(pp)
-            candidate_images.append(pp)
-
-        # Skorları topla
-        scores = []
-        for p in candidate_images:
-            s = nudenet_score_for(p)
-            ks = kiss_score(p)
-            # yalnızca eşik üstü ise öpüşme skorunu dikkate al
-            if ks >= float(THR.get("KISS_THRESHOLD", 0.35)):
-                s = max(s, ks)
-            scores.append(s)
-
-        # Karar: gelişmiş mantık + global güvenlik skoru fallback
-        delete = should_delete(scores) or (scores and max(scores) >= global_security_score)
-
-        if delete:
-            try:
-                await msg.delete()
-            except Exception as e:
-                print("delete fail:", e)
-
-    except Exception as e:
-        print("sticker_filter hata:", e)
-    finally:
-        for p in tmp:
-            try:
-                if p and os.path.exists(p):
-                    os.remove(p)
-            except:
-                pass
-
-
-# ---------- callback (üyeler kullanamaz) ----------
 @app.on_callback_query()
 async def buton(_, cb: CallbackQuery):
+    from pyrogram.enums import ChatType
+    # Özel mesajlarda yetki kontrolü yapma - enum ile karşılaştırma yap
+    if cb.message.chat.type in (ChatType.SUPERGROUP, ChatType.GROUP):
+        
+        is_authorized = await is_user_authorized(app, cb.message.chat.id, cb.from_user.id)
+        
+        if not is_authorized:
+            await cb.answer("Bu butonları sadece grup yöneticileri kullanabilir.", show_alert=True)
+            return
+    
     cid = cb.message.chat.id
-    if cb.message.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, cb.from_user.id):
-        return await cb.answer("Bu menü sadece yöneticilere açık.", show_alert=True)
-
     data = cb.data
+    
     if data == "kapat":
-        await cb.message.delete(); return
+        await cb.message.delete()
+        return
 
     elif data == "help":
         await cb.message.edit_text(
             "🆘 Yardım Menüsü:\n\n"
-            "🛡️ /guvenlik [0.1 - 1.0] (Sadece Bot Sahibi)\n"
-            " ➡️ Global sticker silme hassasiyetini ayarlar.\n\n"
             "🧱 /seviyeayar [seviye] [mesaj] [süre]\n"
             " ➡️ Örnek: /seviyeayar 2 10 1 dakika\n\n"
             "🎯 /hakayarla [adet]\n"
@@ -537,9 +355,7 @@ async def buton(_, cb: CallbackQuery):
             "📌 /durumum\n"
             " ➡️ Seviyeniz ve kalan hak durumunuz.\n\n"
             "➕ /yetkiver & ➖ /yetkial\n"
-            " ➡️ Bot-admin ekle/çıkar.\n\n"
-            "ℹ️ /hakkinda\n"
-            " ➡️ Bot hakkında bilgi.",
+            " ➡️ Bot-admin ekle/çıkar.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
         )
 
@@ -556,17 +372,17 @@ async def buton(_, cb: CallbackQuery):
         await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
 
     elif data == "settings":
-        gmax = get_chat_max_grant(cid)
-        await cb.message.edit_text(
-            f"⚙️ Ayarlar\n\n"
-            f"🛡️ **Global Güvenlik Seviyesi: {global_security_score}** (%{int(global_security_score*100)})\n"
-            f"{thresholds_summary()}\n\n"  # <-- EKLENDİ
-            f"🎁 Gruba Özel Günlük Hak: {gmax}\n\n"
-            "➡️ Değiştirmek için komutları kullanın:\n"
-            "`/guvenlik [değer]` (Sadece Bot Sahibi)\n"
-            "`/hakayarla [adet]`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]])
-        )
+        text, keyboard = build_settings_markup(cid)
+        await cb.message.edit_text(text, reply_markup=keyboard)
+    
+    elif data == "toggle_announce":
+        set_announce(cid, not get_announce(cid))
+        text, keyboard = build_settings_markup(cid)
+        try:
+            await cb.message.edit_text(text, reply_markup=keyboard)
+            await cb.answer("Bilgi mesajı ayarı değiştirildi.")
+        except:
+            await cb.answer("Ayarlar güncel.")
 
     elif data == "adminlistesi":
         await ensure_group_admin_bucket(cid)
@@ -586,176 +402,363 @@ async def buton(_, cb: CallbackQuery):
 
     elif data == "geri":
         await cb.message.delete()
-        await menu(_, cb.message)
+        # Geri butonuna basıldığında menüyü tekrar göster
+        btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
+            [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
+            [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
+            [InlineKeyboardButton("👥 Admin Listesi", callback_data="adminlistesi")],
+            [InlineKeyboardButton("❌ Kapat", callback_data="kapat")]
+        ])
+        await cb.message.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
 
+    # HAZIR AYAR BUTONLARI
+    elif data.startswith("hazır_"):
+        ayar_tipi = data.split("_")[1]
+        
+        if ayar_tipi == "iptal":
+            await cb.message.delete()
+            await cb.answer("İşlem iptal edildi.")
+            return
+        
+        if ayar_tipi in HAZIR_AYARLAR:
+            # Hazır ayarı uygula - limits kısmını al
+            limits[cid] = {int(k): v for k, v in HAZIR_AYARLAR[ayar_tipi]["limits"].items()}
+            # Grant (hak) ayarını da uygula
+            group_max_grant[cid] = HAZIR_AYARLAR[ayar_tipi]["grant"]
+            
+            # Her ikisini de kaydet
+            save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
+            save_json(GRANTS_FILE, {str(k): v for k, v in group_max_grant.items()})
+            
+            await cb.message.edit_text(
+                f"✅ **{ayar_tipi.capitalize()}** ayarları uygulandı!\n\n"
+                f"📊 Seviyeler: {len(HAZIR_AYARLAR[ayar_tipi]['limits'])} adet\n"
+                f"🎯 Günlük Hak: {HAZIR_AYARLAR[ayar_tipi]['grant']} adet\n\n"
+                f"✅ /seviyelistesi komutu ile kontrol edebilirsiniz."
+            )
+            await cb.answer("Hazır ayar uygulandı!")
+        else:
+            await cb.answer("Geçersiz ayar tipi!", show_alert=True)
 
+    # GRUPLU HAZIR AYAR BUTONLARI
+    elif data.startswith("uygula_"):
+        if cb.from_user.id != admin_id:
+            await cb.answer("Bu işlem sadece bot sahibi için!", show_alert=True)
+            return
+            
+        parts = data.split("_")
+        if parts[1] == "iptal":
+            await cb.message.delete()
+            await cb.answer("İşlem iptal edildi.")
+            return
+        
+        if len(parts) >= 3:
+            ayar_tipi = parts[1]
+            hedef_grup_id = int(parts[2])
+            
+            if ayar_tipi in HAZIR_AYARLAR:
+                # Hazır ayarı hedef gruba uygula - limits kısmını al
+                limits[hedef_grup_id] = {int(k): v for k, v in HAZIR_AYARLAR[ayar_tipi]["limits"].items()}
+                # Grant (hak) ayarını da uygula
+                group_max_grant[hedef_grup_id] = HAZIR_AYARLAR[ayar_tipi]["grant"]
+                
+                # Her ikisini de kaydet
+                save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
+                save_json(GRANTS_FILE, {str(k): v for k, v in group_max_grant.items()})
+                
+                await cb.message.edit_text(
+                    f"✅ **{hedef_grup_id}** grubuna **{ayar_tipi.capitalize()}** ayarları uygulandı!\n\n"
+                    f"📊 Seviyeler: {len(HAZIR_AYARLAR[ayar_tipi]['limits'])} adet\n"
+                    f"🎯 Günlük Hak: {HAZIR_AYARLAR[ayar_tipi]['grant']} adet\n\n"
+                    f"✅ Gruba gidip /seviyelistesi komutu ile kontrol edebilirsiniz."
+                )
+                await cb.answer("Hazır ayar uygulandı!")
+            else:
+                await cb.answer("Geçersiz ayar tipi!", show_alert=True)
+# ================= NSFW TESPİT =================
+# Buradan sonraki NSFW, sticker, GIF analiz kodları değişmeden kalabilir.
+# ... (NSFW kodlarının geri kalanı buraya gelecek)
 
+# NudeNet modelini yükle
+detector = NudeDetector()
+# Duyarlı gördüğümüz label seti
+NSFW_LABELS = { "FEMALE_BREAST_EXPOSED", "FEMALE_GENITALIA_EXPOSED", "MALE_GENITALIA_EXPOSED", "ANUS_EXPOSED", "BUTTOCKS_EXPOSED", "EXPOSED_BREAST", "EXPOSED_GENITALIA", "EXPOSED_BUTTOCKS", "EXPOSED_ANUS", "BELLY_EXPOSED", "ARMPITS_EXPOSED", "FEET_EXPOSED",}
 
-# --- GIF (Telegram animation) filtresi ---
-@app.on_message(filters.group & filters.animation)
-async def gif_animation_filter(_, msg: Message):
-    tmp = []
+def preprocess_for_nudenet(in_path: str) -> str:
     try:
-        # Telegram GIF = MP4, video gibi kare al
-        downloaded_path = await app.download_media(msg.animation)
-        tmp.append(downloaded_path)
-
-        frames = extract_webm_frames(downloaded_path, max_frames=6)
-        candidate_images = []
-        for f in frames:
-            tmp.append(f)
-            candidate_images.append(preprocess_for_nudenet(f))
-
-        scores = []
-        for p in candidate_images:
-            s = nudenet_score_for(p)
-            ks = kiss_score(p)
-            if ks >= float(THR.get("KISS_THRESHOLD", 0.35)):
-                s = max(s, ks)
-            scores.append(s)
-
-        delete = should_delete(scores) or (scores and max(scores) >= global_security_score)
-
-        if delete:
-            try:
-                await msg.delete()
-            except Exception as e:
-                if DEBUG:
-                    print("gif delete fail:", e)
+        im = Image.open(in_path).convert("RGB")
+        w, h = im.size
+        m = min(w, h)
+        min_side = int(THR.get("MIN_SIDE", 512))
+        if m < min_side:
+            scale = min_side / m
+            im = im.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
+        im_np = np.array(im, dtype=np.uint8)
+        im_np = cv2.GaussianBlur(im_np, (0, 0), 1.0)
+        im_np = cv2.addWeighted(im_np, 1.5, im_np, -0.5, 0)
+        out = f"{in_path}.nudeprep.jpg"
+        Image.fromarray(im_np).save(out, "JPEG", quality=92)
+        return out
     except Exception as e:
-        if DEBUG:
-            print("gif_animation_filter hata:", e)
-    finally:
-        for p in tmp:
-            try:
-                if p and os.path.exists(p):
-                    os.remove(p)
-            except:
-                pass
+        print("preprocess_for_nudenet hata:", e)
+        return in_path
 
+def extract_webm_frames_adv(path: str) -> list[str]:
+    outs = []
+    try:
+        max_frames = int(THR.get("GIF_MAX_FRAMES", 6))
+        step = max(1, int(THR.get("GIF_STEP", 2)))
+        cap = cv2.VideoCapture(path)
+        if not cap or not cap.isOpened(): raise RuntimeError("VideoCapture açılamadı")
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if total <= 0:
+            return outs
+        idxs = list(range(0, total, step))[:max_frames]
+        for i in idxs:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, i))
+            ok, frame = cap.read()
+            if not ok: continue
+            out = f"{path}_f{i}.jpg"
+            cv2.imwrite(out, frame)
+            outs.append(out)
+        cap.release()
+    except Exception as e:
+        print("extract_webm_frames hata:", e)
+    return outs
 
-
-# ------------------ Basit "kissing" sezgisi ------------------
-# OpenCV Haar yüz modeli (opencv-data içinden gelir)
+def nudenet_score_for(path: str) -> float:
+    try:
+        res = detector.detect(path) or []
+        mx = 0.0
+        for d in res:
+            label = (d.get("label") or d.get("class") or "").upper()
+            score = float(d.get("score", 0.0))
+            if any(k in label for k in ["BREAST", "GENITAL", "BUTTOCK", "ANUS", "EXPOSED"]):
+                mx = max(mx, score)
+        return mx
+    except Exception as e:
+        return 0.0
 _FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 def kiss_score(img_path: str) -> float:
-    """
-    Aynı karede iki yüz varsa ve birbirine çok yakınsa (yan yana),
-    0.60 - 0.90 arası bir "risk" skoru döndürür. Aksi halde 0.0.
-    """
     try:
         img = cv2.imread(img_path)
-        if img is None:
-            return 0.0
+        if img is None: return 0.0
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
         faces = _FACE_CASCADE.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(40, 40))
-        if len(faces) < 2:
-            return 0.0
-
-        # En büyük iki yüz
+        if len(faces) < 2: return 0.0
         faces = sorted(faces, key=lambda r: r[2] * r[3], reverse=True)[:2]
-
         def center(rect):
             x, y, w, h = rect
             return (x + w / 2.0, y + h / 2.0, w, h)
-
         c1 = center(faces[0])
         c2 = center(faces[1])
-
-        # Yüzler arası mesafe (piksel) ve normalize et
         dx = abs(c1[0] - c2[0])
         dy = abs(c1[1] - c2[1])
         dist = (dx * dx + dy * dy) ** 0.5
         avg_w = (c1[2] + c2[2]) / 2.0
-        if avg_w <= 1:
-            return 0.0
-
+        if avg_w <= 1: return 0.0
         norm = dist / avg_w
-
-        # Şartlar: benzer yükseklik, yan yana ve yakınlık
-        vertical_ok = dy < 0.5 * avg_w     # dikey fark küçük
-        side_by_side = dx > 0.3 * avg_w    # gerçekten yan yana
-        close_ok = norm < 0.9              # yeterince yakın
-
+        vertical_ok = dy < 0.5 * avg_w
+        side_by_side = dx > 0.3 * avg_w
+        close_ok = norm < 0.9
         if vertical_ok and side_by_side and close_ok:
-            # Ne kadar yakınsa skor o kadar yüksek
-            # norm ~0.3 -> ~0.9 skor, norm ~0.9 -> ~0.6 skor
             score = max(0.60, min(0.90, 1.0 - norm / 1.2))
             return float(score)
-
         return 0.0
     except Exception:
         return 0.0
+def should_delete(scores: list[float], kiss_scores: list[float]|None=None) -> bool:
+    if not scores and not kiss_scores: return False
+    hard = float(THR["HARD_THRESHOLD"])
+    soft = float(THR["SOFT_THRESHOLD"])
+    hits_need = int(THR["SOFT_HITS_REQUIRED"])
+    kiss_thr = float(THR.get("KISS_THRESHOLD", 0.33))
+    if scores and max(scores) >= hard: return True
+    if scores:
+        soft_hits = sum(1 for s in scores if s >= soft)
+        if soft_hits >= hits_need: return True
+    if kiss_scores and max(kiss_scores) >= kiss_thr: return True
+    return False
 
-
-
-# --- Gerçek .gif dosyası (belge olarak gönderilen) filtresi ---
-@app.on_message(filters.group & filters.document)
-async def gif_document_filter(_, msg: Message):
-    # Sadece image/gif mime’ını hedefle
+@app.on_message(filters.command("ayaruygula"))
+async def ayar_uygula_komut(_, msg: Message):
+    if msg.from_user.id != admin_id:
+        return await msg.reply("❌ Bu komut sadece bot sahibine özeldir.")
+    
+    if len(msg.command) < 2:
+        return await msg.reply("⚠️ Kullanım: /ayaruygula [grup_id]")
+    
     try:
-        if not msg.document or (msg.document.mime_type or "") != "image/gif":
-            return
+        hedef_grup_id = int(msg.command[1])
+    except ValueError:
+        return await msg.reply("❌ Geçersiz grup ID! Sayı olmalı.")
+    
+    # Butonlar ile hazır ayar seçeneklerini göster
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Standart (10 Seviye)", callback_data=f"uygula_standart_{hedef_grup_id}")],
+        [InlineKeyboardButton("⚡ Hızlı (4 Seviye)", callback_data=f"uygula_hızlı_{hedef_grup_id}")],
+        [InlineKeyboardButton("🐢 Yavaş (5 Seviye)", callback_data=f"uygula_yavaş_{hedef_grup_id}")],
+        [InlineKeyboardButton("❌ İptal", callback_data="uygula_iptal")]
+    ])
+    
+    await msg.reply(
+    f"🎯 **{hedef_grup_id}** grubuna hangi hazır ayarı uygulamak istersiniz?\n\n"
+    "• 🚀 Standart: 10 seviye, 10 hak\n"
+    "• ⚡ Hızlı: 4 seviye, 5 hak\n" 
+    "• 🐢 Yavaş: 5 seviye, 6 hak",
+    reply_markup=keyboard
+)
 
-        tmp = []
-        downloaded_path = await app.download_media(msg.document)
-        tmp.append(downloaded_path)
+@app.on_message(filters.command("hazırayar"))
+async def hazir_ayar_komut(_, msg: Message):
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+        return await msg.reply("❌ Bu komutu sadece yöneticiler kullanabilir.")
+    
+    # Butonlar ile hazır ayar seçeneklerini göster
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Standart (10 Seviye)", callback_data="hazır_standart")],
+        [InlineKeyboardButton("⚡ Hızlı (4 Seviye)", callback_data="hazır_hızlı")],
+        [InlineKeyboardButton("🐢 Yavaş (5 Seviye)", callback_data="hazır_yavaş")],
+        [InlineKeyboardButton("❌ İptal", callback_data="hazır_iptal")]
+    ])
+    
+    await msg.reply(
+        "🎯 Hangi hazır ayarı uygulamak istersiniz?\n\n"
+        "• 🚀 Standart: 1-1000 mesaj, 10 seviye\n"
+        "• ⚡ Hızlı: 1-100 mesaj, 4 seviye\n"
+        "• 🐢 Yavaş: 1-500 mesaj, 5 seviye",
+        reply_markup=keyboard
+    )
 
-        # imageio ile birkaç kare çek (gerçek GIF çok kareli olabilir)
-        candidate_images = []
+
+# Spam Koruma
+@app.on_message(filters.group & (filters.sticker | filters.animation))
+async def media_spam_kontrol(_, msg: Message):
+    # Yöneticileri kontrol etme
+    if await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+        return
+    
+    uid, cid = msg.from_user.id, msg.chat.id
+    key = (cid, uid)
+    now = time.time()
+    
+    # Kova sistemini başlat veya güncelle
+    if key not in user_media_bucket:
+        user_media_bucket[key] = {"tokens": MEDIA_BUCKET_MAX, "last_update": now}
+    else:
+        # Zaman geçtikçe tokenları yenile
+        time_passed = now - user_media_bucket[key]["last_update"]
+        new_tokens = time_passed * MEDIA_BUCKET_REFILL
+        user_media_bucket[key]["tokens"] = min(MEDIA_BUCKET_MAX, user_media_bucket[key]["tokens"] + new_tokens)
+        user_media_bucket[key]["last_update"] = now
+    
+    # Token kontrolü - 1 token'dan azsa engelle
+    if user_media_bucket[key]["tokens"] < 1:
+        # Token yok, spam yapıyor - mesajı sil ve uyar
         try:
-            import imageio.v3 as iio
-            # İlk kare + ortalarından birkaç tanesi
-            gif = iio.imiter(downloaded_path)
-            frames = []
-            # İlk 10 kareden 6 taneye kadar örnekle
-            for idx, frame in enumerate(gif):
-                if idx in (0, 2, 4, 6, 8, 10):
-                    out = f"{downloaded_path}_f{idx}.jpg"
-                    Image.fromarray(frame).convert("RGB").save(out, "JPEG", quality=92)
-                    tmp.append(out)
-                    candidate_images.append(preprocess_for_nudenet(out))
-                if idx >= 10:
-                    break
+            await msg.delete()
+            # Son 10 saniye içinde uyarı verilmediyse ver
+            if key not in last_warning_time or (now - last_warning_time[key]) > 10:
+                uyarı_msg = await msg.reply(
+                    f"⚠️ {msg.from_user.mention}, çok hızlı medya gönderiyorsun! "
+                    f"Lütfen {MEDIA_BUCKET_MAX} medyayı {int(MEDIA_BUCKET_MAX/MEDIA_BUCKET_REFILL)} saniyeden daha kısa sürede göndermeyin."
+                )
+                last_warning_time[key] = now
+                await asyncio.sleep(8)
+                await uyarı_msg.delete()
         except Exception as e:
-            if DEBUG:
-                print("gif (image/gif) kare çıkarma hata:", e)
+            print(f"Spam kontrol hatası: {e}")
+        return
+    
+    # Token var, medya göndermesine izin ver ama tokenı azalt
+    user_media_bucket[key]["tokens"] -= 1
+    user_media_bucket[key]["last_update"] = now
 
-        scores = []
-        for p in candidate_images:
-            s = nudenet_score_for(p)
-            ks = kiss_score(p)
-            if ks >= float(THR.get("KISS_THRESHOLD", 0.35)):
-                s = max(s, ks)
-            scores.append(s)
+# Uyarı zamanlarını tutmak için
+last_warning_time = {}
 
-        delete = should_delete(scores) or (scores and max(scores) >= global_security_score)
+@app.on_message(filters.group & (filters.sticker | filters.animation | filters.document))
+async def media_filter(_, msg: Message):
+    # Grup yöneticilerinin attığı medyaları kontrol etme
+    if await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+        return
+    
+    tmp = []
+    try:
+        candidate_images = []
+        downloaded_path = None
+        
+        if msg.sticker:
+            downloaded_path = await app.download_media(msg.sticker)
+            tmp.append(downloaded_path)
+            if msg.sticker.is_video:
+                frames = extract_webm_frames_adv(downloaded_path)
+                for f in frames:
+                    tmp.append(f)
+                    candidate_images.append(preprocess_for_nudenet(f))
+            elif msg.sticker.is_animated and LOTTIE_OK:
+                try:
+                    anim = lottie_importers.import_tgs(downloaded_path)
+                    step = max(1, int(THR.get("GIF_STEP", 2)))
+                    picks = list(range(0, 30, step))[:int(THR.get("GIF_MAX_FRAMES", 6))]
+                    for fidx in picks:
+                        out_png = f"{downloaded_path}_f{fidx}.png"
+                        try:
+                            lottie_exporters.export_png(anim, out_png, frame=fidx, scale=2.0)
+                            tmp.append(out_png)
+                            candidate_images.append(preprocess_for_nudenet(out_png))
+                        except Exception: pass
+                except Exception as e: print("lottie hata:", e)
+            else:
+                pp = preprocess_for_nudenet(downloaded_path)
+                if pp != downloaded_path: tmp.append(pp)
+                candidate_images.append(pp)
+        
+        elif msg.animation:
+            downloaded_path = await app.download_media(msg.animation)
+            tmp.append(downloaded_path)
+            frames = extract_webm_frames_adv(downloaded_path)
+            for f in frames:
+                tmp.append(f)
+                candidate_images.append(preprocess_for_nudenet(f))
 
-        if delete:
+        elif msg.document and (msg.document.mime_type or "") == "image/gif":
+            downloaded_path = await app.download_media(msg.document)
+            tmp.append(downloaded_path)
             try:
-                await msg.delete()
-            except Exception as e:
-                if DEBUG:
-                    print("gif(doc) delete fail:", e)
+                import imageio.v3 as iio
+                step = max(1, int(THR.get("GIF_STEP", 2)))
+                limit = int(THR.get("GIF_MAX_FRAMES", 6))
+                cnt = 0
+                for idx, frame in enumerate(iio.imiter(downloaded_path)):
+                    if idx % step == 0:
+                        out = f"{downloaded_path}_f{idx}.jpg"
+                        Image.fromarray(frame).convert("RGB").save(out, "JPEG", quality=92)
+                        tmp.append(out)
+                        candidate_images.append(preprocess_for_nudenet(out))
+                        cnt += 1
+                        if cnt >= limit: break
+            except Exception as e: print("gif (image/gif) kare çıkarma hata:", e)
+
+        if not candidate_images: return
+
+        scores = [nudenet_score_for(p) for p in candidate_images]
+        kscores = [kiss_score(p) for p in candidate_images]
+        
+        if should_delete(scores, kscores) or (scores and max(scores) >= global_security_score):
+            await msg.delete()
 
     except Exception as e:
-        if DEBUG:
-            print("gif_document_filter hata:", e)
+        print(f"Media filter error: {e}")
     finally:
-        # tmp temizliği
-        try:
-            for p in tmp:
-                if p and os.path.exists(p):
-                    os.remove(p)
-        except:
-            pass
+        for p in tmp:
+            if p and os.path.exists(p):
+                try: os.remove(p)
+                except: pass
 
-
-
-
-# ---------- komutlar ----------
+# ---------- KOMUTLAR ----------
 @app.on_message(filters.command("guvenlik"))
 async def set_score_cmd(_, msg: Message):
     if msg.from_user.id != admin_id:
@@ -770,148 +773,125 @@ async def set_score_cmd(_, msg: Message):
     except (ValueError, IndexError):
         await msg.reply("⚠️ Örnek: `/guvenlik 0.85`")
 
-# ---- (EKLENDİ) NSFW threshold komutları (/hard, /soft, /hits)
-def _is_owner(uid: int) -> bool:
-    return uid == admin_id
+@app.on_message(filters.command("log"))
+async def cmd_log(_, msg: Message):
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
+    await msg.reply("ℹ️ `/log` komutu devre dışı bırakıldı. DEBUG ayarı dosyadan okunuyor ve Ayarlar menüsünde görüntüleniyor.")
+
+def _is_owner(uid: int) -> bool: return uid == admin_id
 
 @app.on_message(filters.command("hard"))
 async def cmd_hard(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/hard 0.80` (0-1 arası)", quote=True)
-    val = _try_float(parts[1])
-    if val is None or not (0.0 <= val <= 1.0):
-        return await msg.reply("Kullanım: `/hard 0.80` (0-1 arası)", quote=True)
-    THR["HARD_THRESHOLD"] = val
-    save_thresholds(THR)
-    await msg.reply(f"✅ HARD eşik: **{val}**\n\n{thresholds_summary()}", quote=True)
+    if not _is_owner(msg.from_user.id): return
+    try:
+        val = _try_float(msg.text.split()[1])
+        if not (0.0 <= val <= 1.0): raise ValueError
+        THR["HARD_THRESHOLD"] = val; save_thresholds(THR)
+        await msg.reply(f"✅ HARD eşik: **{val}**")
+    except: await msg.reply("Kullanım: `/hard 0.80` (0-1 arası)", quote=True)
 
 @app.on_message(filters.command("soft"))
 async def cmd_soft(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/soft 0.55` (0-1 arası)", quote=True)
-    val = _try_float(parts[1])
-    if val is None or not (0.0 <= val <= 1.0):
-        return await msg.reply("Kullanım: `/soft 0.55` (0-1 arası)", quote=True)
-    THR["SOFT_THRESHOLD"] = val
-    save_thresholds(THR)
-    await msg.reply(f"✅ SOFT eşik: **{val}**\n\n{thresholds_summary()}", quote=True)
+    if not _is_owner(msg.from_user.id): return
+    try:
+        val = _try_float(msg.text.split()[1])
+        if not (0.0 <= val <= 1.0): raise ValueError
+        THR["SOFT_THRESHOLD"] = val; save_thresholds(THR)
+        await msg.reply(f"✅ SOFT eşik: **{val}**")
+    except: await msg.reply("Kullanım: `/soft 0.55` (0-1 arası)", quote=True)
 
 @app.on_message(filters.command("hits"))
 async def cmd_hits(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2 or not parts[1].isdigit():
-        return await msg.reply("Kullanım: `/hits 2` (1–10 arası)", quote=True)
-    val = int(parts[1])
-    if val < 1 or val > 10:
-        return await msg.reply("Kullanım: `/hits 2` (1–10 arası)", quote=True)
-    THR["SOFT_HITS_REQUIRED"] = val
-    save_thresholds(THR)
-    await msg.reply(f"✅ HITS: **{val}**\n\n{thresholds_summary()}", quote=True)
+    if not _is_owner(msg.from_user.id): return
+    try:
+        val = int(msg.text.split()[1])
+        if not (1 <= val <= 10): raise ValueError
+        THR["SOFT_HITS_REQUIRED"] = val; save_thresholds(THR)
+        await msg.reply(f"✅ HITS: **{val}**")
+    except: await msg.reply("Kullanım: `/hits 2` (1–10 arası)", quote=True)
 
-# ---- (EKLENDİ) Dinamik ayar komutları: /minside, /gifmax, /gifstep, /kiss
 @app.on_message(filters.command("minside"))
 async def cmd_minside(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/minside 768`", quote=True)
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
     try:
-        val = int(parts[1])
-        if val < 256 or val > 2048:
-            return await msg.reply("MINSIDE 256–2048 arası olmalı.", quote=True)
-        THR["MINSIDE"] = val
-        save_thresholds(THR)
-        await msg.reply(f"✅ MINSIDE = **{val}**", quote=True)
-    except:
-        await msg.reply("Kullanım: `/minside 768`", quote=True)
+        v = int(msg.text.split()[1])
+        if not (256 <= v <= 2048): raise ValueError
+        THR["MIN_SIDE"] = v; save_thresholds(THR)
+        await msg.reply(f"✅ MIN_SIDE: **{v}**")
+    except: await msg.reply("Kullanım: `/minside 768` (256-2048)")
 
 @app.on_message(filters.command("gifmax"))
 async def cmd_gifmax(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/gifmax 12`", quote=True)
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
     try:
-        val = int(parts[1])
-        if val < 1 or val > 40:
-            return await msg.reply("GIFMAX 1–40 arası olmalı.", quote=True)
-        THR["GIFMAX"] = val
-        save_thresholds(THR)
-        await msg.reply(f"✅ GIFMAX = **{val}**", quote=True)
-    except:
-        await msg.reply("Kullanım: `/gifmax 12`", quote=True)
+        v = int(msg.text.split()[1])
+        if not (3 <= v <= 24): raise ValueError
+        THR["GIF_MAX_FRAMES"] = v; save_thresholds(THR)
+        await msg.reply(f"✅ GIF_MAX_FRAMES: **{v}**")
+    except: await msg.reply("Kullanım: `/gifmax 12` (3-24)")
 
 @app.on_message(filters.command("gifstep"))
 async def cmd_gifstep(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/gifstep 2`", quote=True)
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
     try:
-        val = int(parts[1])
-        if val < 1 or val > 30:
-            return await msg.reply("GIFSTEP 1–30 arası olmalı.", quote=True)
-        THR["GIFSTEP"] = val
-        save_thresholds(THR)
-        await msg.reply(f"✅ GIFSTEP = **{val}**", quote=True)
-    except:
-        await msg.reply("Kullanım: `/gifstep 2`", quote=True)
+        v = int(msg.text.split()[1])
+        if not (1 <= v <= 10): raise ValueError
+        THR["GIF_STEP"] = v; save_thresholds(THR)
+        await msg.reply(f"✅ GIF_STEP: **{v}**")
+    except: await msg.reply("Kullanım: `/gifstep 2` (1-10)")
 
 @app.on_message(filters.command("kiss"))
 async def cmd_kiss(_, msg: Message):
-    if not _is_owner(msg.from_user.id):
-        return
-    parts = msg.text.split()
-    if len(parts) < 2:
-        return await msg.reply("Kullanım: `/kiss 0.33`", quote=True)
-    val = _try_float(parts[1])
-    if val is None or not (0.0 <= val <= 1.0):
-        return await msg.reply("Kullanım: `/kiss 0.33` (0-1 arası)", quote=True)
-    THR["KISS_THRESHOLD"] = val
-    save_thresholds(THR)
-    await msg.reply(f"💋 KISS threshold: **{val}**", quote=True)
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
+    try:
+        val = _try_float(msg.text.split()[1])
+        if not (0.0 <= val <= 1.0): raise ValueError
+        THR["KISS_THRESHOLD"] = val; save_thresholds(THR)
+        await msg.reply(f"✅ KISS_THRESHOLD: **{val}**")
+    except: await msg.reply("Kullanım: `/kiss 0.33` (0.0-1.0)")
+
+@app.on_message(filters.command("bilgi"))
+async def cmd_bilgi(_, msg: Message):
+    if msg.chat.type not in ("supergroup", "group"): return
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
+    try:
+        val = msg.text.split()[1].lower() == "on"
+        set_announce(msg.chat.id, val)
+        await msg.reply(f"✅ Bilgi mesajları: **{'Açık' if val else 'Kapalı'}**")
+    except: await msg.reply("Kullanım: `/bilgi on` veya `/bilgi off`")
 
 @app.on_message(filters.command("seviyeayar"))
 async def set_limit(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid): return
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): 
+        return
     try:
         _, seviye, mesaj, süre_deger, süre_birim = msg.text.split()
         sure_saniye = parse_time(int(süre_deger), süre_birim)
-        if cid not in limits: limits[cid] = {}
-        ensure_default_level_for(cid)
-        limits[cid][int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
+        
+        # Sadece limits dict'ini güncelle, ensure_default_level_for'u çağırma
+        if msg.chat.id not in limits:
+            limits[msg.chat.id] = {}
+            
+        limits[msg.chat.id][int(seviye)] = {"msg": int(mesaj), "süre": sure_saniye}
         save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
         await msg.reply(f"✅ Seviye {seviye} ayarlandı.")
-    except Exception:
+    except: 
         await msg.reply("⚠️ Kullanım: /seviyeayar [seviye] [mesaj] [süre] [saniye|dakika|saat]")
+
 
 @app.on_message(filters.command("hakayarla"))
 async def set_grant(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid): return
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
     try:
         adet = int(msg.text.split()[1])
-        set_chat_max_grant(cid, adet)
+        set_chat_max_grant(msg.chat.id, adet)
         await msg.reply(f"✅ (Grup) Günlük hak: {adet}")
-    except Exception:
-        await msg.reply("⚠️ Kullanım: /hakayarla [adet]")
+    except: await msg.reply("⚠️ Kullanım: /hakayarla [adet]")
 
 @app.on_message(filters.command("verisil"))
 async def reset_all(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid): return
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
+    cid = msg.chat.id
     keys_ud = [k for k in list(user_data.keys()) if k.startswith(f"({cid},")]
     for k in keys_ud: user_data.pop(k, None)
     keys_uc = [k for k in list(user_msg_count.keys()) if k[0] == cid]
@@ -925,12 +905,11 @@ async def reset_all(_, msg: Message):
 
 @app.on_message(filters.command("seviyelerisil"))
 async def seviyeleri_sil(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid): return
-    if cid in limits:
-        limits.pop(cid, None)
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id): return
+    if msg.chat.id in limits:
+        limits.pop(msg.chat.id, None)
         save_json(LIMITS_FILE, {str(k): v for k, v in limits.items()})
-    ensure_default_level_for(cid)
+    ensure_default_level_for(msg.chat.id)
     await msg.reply("🗑️ Bu gruptaki tüm seviye ayarları silindi. Varsayılan **Seviye 0 (1 mesaj / 1 sn)** aktif.")
 
 @app.on_message(filters.command("durumum"))
@@ -941,15 +920,11 @@ async def user_status(_, msg: Message):
     if key not in user_data:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[(cid, uid)] = 0
-        save_json(USERDATA_FILE, convert_keys_to_str(user_data))
-        save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
     if user_data[key].get("date") != today:
         user_data[key]["date"] = today
         user_data[key]["seviye"] = 0
         user_data[key]["grant_count"] = 0
         user_msg_count[(cid, uid)] = 0
-        save_json(USERDATA_FILE, convert_keys_to_str(user_data))
-        save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
     ensure_default_level_for(cid)
     veri = user_data[key]
     sev = veri["seviye"]
@@ -967,8 +942,7 @@ async def user_status(_, msg: Message):
 
 @app.on_message(filters.command("yetkiver"))
 async def add_admin_cmd(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid):
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
         return await msg.reply("❌ Yetkin yok.")
     try:
         if msg.reply_to_message:
@@ -977,15 +951,13 @@ async def add_admin_cmd(_, msg: Message):
             target_id = (await app.get_users(msg.command[1].lstrip("@"))).id
         else:
             return await msg.reply("⚠️ Yanıtla veya kullanıcı adı gir.")
-        await add_group_admin(cid, target_id)
+        await add_group_admin(msg.chat.id, target_id)
         await msg.reply(f"✅ {target_id} bu grup için bot-admin yapıldı.")
-    except Exception as e:
-        await msg.reply(f"❌ Hata: {e}")
+    except Exception as e: await msg.reply(f"❌ Hata: {e}")
 
 @app.on_message(filters.command("yetkial"))
 async def remove_admin_cmd(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if not is_group_bot_admin(cid, uid):
+    if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
         return await msg.reply("❌ Yetkin yok.")
     try:
         if msg.reply_to_message:
@@ -994,24 +966,22 @@ async def remove_admin_cmd(_, msg: Message):
             target_id = (await app.get_users(msg.command[1].lstrip("@"))).id
         else:
             return await msg.reply("⚠️ Yanıtla veya kullanıcı adı gir.")
-        if target_id == admin_id:
-            return await msg.reply("❌ Owner kaldırılamaz.")
-        await remove_group_admin(cid, target_id)
+        if target_id == admin_id: return await msg.reply("❌ Owner kaldırılamaz.")
+        await remove_group_admin(msg.chat.id, target_id)
         await msg.reply(f"🚫 {target_id} bu grupta bot-admin listesinden çıkarıldı.")
-    except Exception as e:
-        await msg.reply(f"❌ Hata: {e}")
+    except Exception as e: await msg.reply(f"❌ Hata: {e}")
 
 @app.on_message(filters.command("seviyelistesi"))
 async def seviyelistesi_cmd(_, msg: Message):
-    cid, uid = msg.chat.id, msg.from_user.id
-    if msg.chat.type in ("supergroup", "group") and not is_group_bot_admin(cid, uid):
-        return
-    ensure_default_level_for(cid)
-    if cid not in limits or not limits[cid]:
+    if msg.chat.type in ("supergroup", "group"):
+        if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+            return
+    ensure_default_level_for(msg.chat.id)
+    if msg.chat.id not in limits or not limits[msg.chat.id]:
         return await msg.reply("⚠️ Bu grupta ayarlanmış seviye yok.")
     text = "📊 Seviye Listesi (Bu Grup):\n\n"
-    for s in sorted(limits[cid].keys()):
-        l = limits[cid][s]
+    for s in sorted(limits[msg.chat.id].keys()):
+        l = limits[msg.chat.id][s]
         sure_metni = saniyeyi_donustur(l['süre'])
         text += f"🔹 Seviye {s}: {l['msg']} mesaj → {sure_metni} izin\n"
     await msg.reply(text)
@@ -1019,7 +989,7 @@ async def seviyelistesi_cmd(_, msg: Message):
 @app.on_message(filters.command("hakkinda"))
 async def about_info(_, msg: Message):
     if msg.chat.type in ("supergroup", "group"):
-        if not is_group_bot_admin(msg.chat.id, msg.from_user.id):
+        if not await is_user_authorized(app, msg.chat.id, msg.from_user.id):
             return
     await msg.reply("🤖 Medya Kontrol Botu\nMesaj sayısına göre medya izni verir.\n🛠 Geliştirici: @Ankateamiletisim")
 
@@ -1034,23 +1004,26 @@ async def start_command(_, msg: Message):
         reply_markup=btn
     )
 
-# ---------- mesaj takibi ----------
+# ---------- MESAJ TAKİBİ VE SEVİYE SİSTEMİ ----------
 @app.on_message(filters.group & ~filters.service)
 async def takip_et(_, msg: Message):
+    if await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+        return
+
     uid, cid = msg.from_user.id, msg.chat.id
-
-    # 🔴 EKLENDİ: adminleri tamamen hariç tut
-    if is_group_bot_admin(cid, uid):
-        return  
-
-    ensure_default_level_for(cid)
+    
+    # Sadece bu grup için limits yoksa varsayılan seviyeyi ekle
+    if cid not in limits:
+        ensure_default_level_for(cid)
     key = f"({cid}, {uid})"
     now = time.time()
     today = str(datetime.now().date())
-    if key not in user_data or user_data[key]["date"] != today:
+    
+    if key not in user_data or user_data[key].get("date") != today:
         user_data[key] = {"seviye": 0, "grant_count": 0, "date": today}
         user_msg_count[(cid, uid)] = 0
-    if now < izin_sureleri.get((cid, uid), 0): 
+    
+    if now < izin_sureleri.get((cid, uid), 0):
         return
 
     user_msg_count[(cid, uid)] = user_msg_count.get((cid, uid), 0) + 1
@@ -1058,54 +1031,45 @@ async def takip_et(_, msg: Message):
 
     for seviye in sorted(grup_limitleri.keys()):
         lim = grup_limitleri[seviye]
-        if (user_msg_count[(cid, uid)] >= lim["msg"]
-            and seviye > user_data[key]["seviye"]
-            and user_data[key]["grant_count"] < get_chat_max_grant(cid)):
+        if (user_msg_count.get((cid, uid), 0) >= lim["msg"]
+            and seviye > user_data[key].get("seviye", -1)
+            and user_data[key].get("grant_count", 0) < get_chat_max_grant(cid)):
 
             user_data[key]["seviye"] = seviye
             user_data[key]["grant_count"] += 1
             user_msg_count[(cid, uid)] = 0
             izin_sureleri[(cid, uid)] = now + lim["süre"]
 
-            sure_metni = saniyeyi_donustur(lim['süre'])
-            await msg.reply(
-                f"🎉 Tebrikler! Seviye {seviye} tamamlandı. **{sure_metni}** sticker/GIF izni verildi."
-            )
+            if get_announce(cid):
+                sure_metni = saniyeyi_donustur(lim['süre'])
+                await msg.reply(f"🎉 Tebrikler! Seviye {seviye} tamamlandı. **{sure_metni}** sticker/GIF izni verildi.")
 
-            izin_ver = ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_polls=False,
-                can_send_other_messages=True,
-                can_add_web_page_previews=False,
-                can_change_info=False,
-                can_invite_users=False,
-                can_pin_messages=False
-            )
-            izin_kisitla = ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=False,
-                can_send_polls=False,
-                can_send_other_messages=False,
-                can_add_web_page_previews=False,
-                can_change_info=False,
-                can_invite_users=False,
-                can_pin_messages=False
-            )
+            izin_ver = ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True)
+            izin_kisitla = ChatPermissions(can_send_messages=True)
+            
             try:
                 await app.restrict_chat_member(cid, uid, izin_ver)
+                
+                # ÖDÜL SÜRESİNİN SONUNDA MEDYA COOLDOWN'ını SIFIRLA
+                async def reset_cooldown_after_reward():
+                    await asyncio.sleep(lim["süre"])
+                    user_last_media.pop((cid, uid), None)
+                
+                asyncio.create_task(reset_cooldown_after_reward())
+                
                 await asyncio.sleep(lim["süre"])
                 await app.restrict_chat_member(cid, uid, izin_kisitla)
-                await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
+                
+                if get_announce(cid):
+                    await msg.reply("⌛️ Sticker/GIF iznin sona erdi.")
             except Exception as e:
-                print("HATA:", e)
+                print("HATA: Üye kısıtlama/açma sırasında ->", e)
 
     save_json(USERDATA_FILE, convert_keys_to_str(user_data))
     save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
     save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
 
-
-# ---------- gruba eklenme olayı ----------
+# ---------- GRUP OLAYLARI ----------
 @app.on_chat_member_updated()
 async def yeni_katilim(_, cmu: ChatMemberUpdated):
     try:
@@ -1115,32 +1079,23 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
             await ensure_group_admin_bucket(cid)
             ensure_default_level_for(cid)
 
-            adder_id = None
-            if cmu.from_user:
-                adder_id = cmu.from_user.id
+            adder_id = cmu.from_user.id if cmu.from_user else None
 
             if adder_id:
                 await add_group_admin(cid, adder_id)
-                try:
-                    u = await app.get_users(adder_id)
-                    who = f"@{u.username}" if u.username else f"{u.first_name}"
-                except:
-                    who = str(adder_id)
+                u = await app.get_users(adder_id)
+                who = f"@{u.username}" if u.username else f"{u.first_name}"
                 await app.send_message(cid, f"✅ Bot eklendi. {who} bu grup için bot-admin yapıldı.")
             else:
                 chosen = None
-                async for m in app.get_chat_members(cid, filter="administrators"):
+                async for m in app.get_chat_members(cid, filter=ChatMemberStatus.ADMINISTRATORS):
                     if m.user.is_bot: continue
-                    perms = m.privileges
-                    if perms and getattr(perms, "can_restrict_members", False):
+                    if m.privileges and m.privileges.can_restrict_members:
                         chosen = m.user.id; break
                 if chosen:
                     await add_group_admin(cid, chosen)
-                    try:
-                        u = await app.get_users(chosen)
-                        who = f"@{u.username}" if u.username else f"{u.first_name}"
-                    except:
-                        who = str(chosen)
+                    u = await app.get_users(chosen)
+                    who = f"@{u.username}" if u.username else f"{u.first_name}"
                     await app.send_message(cid, f"ℹ️ Ban yetkisi olan ilk yöneticiyi bot-admin yaptım: {who}")
                 else:
                     await app.send_message(cid, "⚠️ Bir yönetici /yetkiver ile bot-admin belirlesin.")
@@ -1157,7 +1112,7 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
     except Exception as e:
         print("on_chat_member_updated error:", e)
 
-# ---------- başlangıç ----------
+# ---------- BAŞLANGIÇ ----------
 print("🚀 Bot başlatılıyor...")
 load_global_score()
 app.run()
