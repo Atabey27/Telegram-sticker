@@ -290,7 +290,9 @@ async def menu(_, msg: Message):
         [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
         [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
         [InlineKeyboardButton("👥 Admin Listesi", callback_data="adminlistesi")],
+        [InlineKeyboardButton("📖 Bot Açıklaması", callback_data="aciklama")],
         [InlineKeyboardButton("❌ Kapat", callback_data="kapat")]
+        
     ])
     await msg.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
 
@@ -401,13 +403,17 @@ async def buton(_, cb: CallbackQuery):
         await cb.message.edit_text(metin, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Geri", callback_data="geri")]]))
 
     elif data == "geri":
-        await cb.message.delete()
+        try:
+            await cb.message.delete()
+        except:
+            pass
         # Geri butonuna basıldığında menüyü tekrar göster
         btn = InlineKeyboardMarkup([
             [InlineKeyboardButton("📋 Yardım Menüsü", callback_data="help")],
             [InlineKeyboardButton("📊 Seviye Listesi", callback_data="limits")],
             [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings")],
             [InlineKeyboardButton("👥 Admin Listesi", callback_data="adminlistesi")],
+            [InlineKeyboardButton("📖 Bot Açıklaması", callback_data="aciklama")],
             [InlineKeyboardButton("❌ Kapat", callback_data="kapat")]
         ])
         await cb.message.reply("👋 Merhaba! Aşağıdan bir seçenek seç:", reply_markup=btn)
@@ -476,6 +482,40 @@ async def buton(_, cb: CallbackQuery):
                 await cb.answer("Hazır ayar uygulandı!")
             else:
                 await cb.answer("Geçersiz ayar tipi!", show_alert=True)
+    elif data == "aciklama":
+        try:
+            await cb.message.delete()
+        except:
+            pass
+        # Net ve açıklayıcı bot açıklaması
+        aciklama_text = (
+            "🤖 **Medya Kontrol Botu**\n\n"
+            "📌 **Bilgi 1 - Ayarlar:**\n"
+            "Eğer bot çok mesaj atıyorsa, bilgi mesajlarını şu şekilde kapatabilirsiniz:\n"
+            "• Chata `/menu` yazınız\n"
+            "• Oradan `Ayarlar` butonunu seçiniz\n"
+            "• `Bilgi Mesajları: Açık` yazan butona basınız\n"
+            "• Böylece bilgi mesajları kapanacaktır\n\n"
+            "📌 **Bilgi 2 - Bot Özellikleri:**\n"
+            "Ben, belirlenen seviyeye ve süreye göre üyelere çıkartma ve GIF atma izni veren, "
+            "+18 GIF ve çıkartmaları silen, ayrıca çıkartma/GIF ile spam yapmalarını engelleyen bir botum.\n\n"
+            "🔹 **Öne Çıkan Özelliklerim:**\n"
+            "• Seviye sistemi ile ödüllendirme\n"
+            "• Otomatik +18 içerik temizleme\n"
+            "• Akıllı spam koruma sistemi\n"
+            "• Kolay yönetim paneli\n\n"
+            "⚡ **/menu** yazarak hemen başlayabilirsiniz!"
+        )
+        
+        await cb.message.reply(
+            aciklama_text,
+            reply_markup=InlineKeyboardMarkup([
+                
+                [InlineKeyboardButton("⚙️ Ayarlar", callback_data="settings"),
+                InlineKeyboardButton("◀️ Geri", callback_data="geri")]
+            ])
+        )
+        await cb.answer("Bot özellikleri gösteriliyor")
 # ================= NSFW TESPİT =================
 # Buradan sonraki NSFW, sticker, GIF analiz kodları değişmeden kalabilir.
 # ... (NSFW kodlarının geri kalanı buraya gelecek)
