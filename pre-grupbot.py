@@ -8,7 +8,7 @@ import json
 import os
 from dotenv import load_dotenv
 import random
-
+from pyrogram.enums import ChatMembersFilter, ChatMemberStatus, ChatType
 # ---- NSFW/Sticker analiz bağımlılıkları
 from nudenet import NudeDetector
 from PIL import Image
@@ -235,25 +235,29 @@ def is_group_bot_admin(chat_id: int, user_id: int) -> bool:
     admins = group_admins.get(chat_id, set())
     return user_id in admins
 
+
 async def is_user_authorized(client, chat_id, user_id):
     """NİHAİ KONTROL: Bot sahibi, özel bot yöneticisi VEYA Telegram grup yöneticisi olup olmadığını kontrol eder."""
     
+    # ✅ ÖNCE admin listesini senkronize et (EN ÖNEMLİ KISIM)
+    await sync_bot_admins_with_telegram(client, chat_id)
+
     # 1. Bot Sahibi mi?
     if user_id == admin_id:
         return True
     
-    # 2. Bota özel yönetici listesinde mi? (/yetkiver ile eklenen)
-    if is_group_bot_admin(chat_id, user_id):
-        return True
-    
-    # 3. Telegram grubunun kurucusu veya yöneticisi mi?
+    # 2. ÖNCE Telegram grubunun kurucusu veya yöneticisi mi?
     try:
         member = await client.get_chat_member(chat_id, user_id)
         if member.status in [ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR]:
             return True
     except Exception as e:
-        print(f"Yetki kontrolü sırasında hata: {e}")
-
+        print(f"Telegram yetki kontrolü sırasında hata: {e}")
+    
+    # 3. SONRA bota özel yönetici listesinde mi?
+    if is_group_bot_admin(chat_id, user_id):
+        return True
+    
     return False
 
 
@@ -520,6 +524,164 @@ async def buton(_, cb: CallbackQuery):
             ])
         )
         await cb.answer("Bot özellikleri gösteriliyor")
+
+async def sync_bot_admins_with_telegram(client, chat_id):
+    """Botun admin listesini Telegram grup adminleri ile senkronize eder"""
+    try:
+        # Önce botun o grupta olup olmadığını kontrol et
+        try:
+            await client.get_chat(chat_id)
+        except Exception:
+            print(f"⚠️ Bot {chat_id} grubunda değil veya erişim yok")
+            return
+        
+        # Mevcut Telegram adminlerini al
+        telegram_admins = set()
+        try:
+            async for member in client.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS):
+                if not member.user.is_bot and member.user.id != admin_id:
+                    telegram_admins.add(member.user.id)
+        except Exception as e:
+            print(f"⚠️ Admin listesi alınamadı {chat_id}: {e}")
+            return
+        
+        # Owner'ı da ekle (eğer alabilirse)
+        try:
+            chat = await client.get_chat(chat_id)
+            if hasattr(chat, 'id'):
+                telegram_admins.add(chat.id)
+        except:
+            pass
+        
+        # Botun admin listesini güncelle
+        group_admins[chat_id] = telegram_admins
+        save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
+        
+    except Exception as e:
+        print(f"Admin senkronizasyon hatası {chat_id}: {e}")
+
+# Her 10 dakikada bir otomatik senkronizasyon
+async def auto_sync():
+    while True:
+        await asyncio.sleep(600)  # 10 dakika
+        for chat_id in list(group_admins.keys()):
+            try:
+                await sync_bot_admins_with_telegram(app, chat_id)
+                print(f"✅ {chat_id} grubu otomatik senkronize edildi")
+            except Exception as e:
+                print(f"Otomatik senkronizasyon hatası {chat_id}: {e}")
+
+# Bot başladığında çalışacak startup fonksiyonu
+async def startup_tasks():
+    """Bot başladığında çalışacak görevler"""
+    print("🤖 Bot başlıyor, admin listeleri senkronize ediliyor...")
+    
+    # Tüm grupları senkronize et
+    for chat_id in list(group_admins.keys()):
+        try:
+            await sync_bot_admins_with_telegram(app, chat_id)
+            print(f"✅ {chat_id} grubu senkronize edildi")
+        except Exception as e:
+            print(f"Başlangıç senkronizasyon hatası {chat_id}: {e}")
+    
+    # Otomatik senkronizasyonu başlat
+    asyncio.create_task(auto_sync())
+    print("✅ Otomatik senkronizasyon başlatıldı")
+
+
+async def remove_group_admin(chat_id: int, user_id: int):
+    await ensure_group_admin_bucket(chat_id)
+    if user_id in group_admins[chat_id]:
+        group_admins[chat_id].remove(user_id)
+        save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
+        
+        # Bot-admin listesinden çıkarılanın izinlerini de kısıtla
+        print(f"⚠️ {user_id} kullanıcısı bot-admin listesinden çıkarıldı, izinler kısıtlanıyor...")
+        
+        izin_kisitla = ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=False,
+            can_send_other_messages=False,
+            can_send_polls=False,
+            can_add_web_page_previews=False,
+            can_change_info=False,
+            can_invite_users=False,
+            can_pin_messages=False
+        )
+        
+        try:
+            await app.restrict_chat_member(chat_id, user_id, izin_kisitla)
+            print(f"✅ {user_id} kullanıcısının medya izinleri kısıtlandı")
+            
+            # İzin süresini de sıfırla
+            izin_key = (chat_id, user_id)
+            if izin_key in izin_sureleri:
+                izin_sureleri.pop(izin_key)
+                save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+                
+        except Exception as e:
+            print(f"❌ İzin kısıtlama hatası: {e}")
+
+@app.on_chat_member_updated()
+async def on_chat_member_update(_, cmu: ChatMemberUpdated):
+    """Birinin yetkisi değiştiğinde senkronize et ve yetkisi alınan adminin izinlerini kısıtla"""
+    
+    # 1. Önce senkronizasyon yap
+    if cmu.chat.id in group_admins:
+        await sync_bot_admins_with_telegram(app, cmu.chat.id)
+        print(f"🔄 {cmu.chat.id} grubu üye değişikliği sonrası senkronize edildi")
+    
+    # 2. Eğer birinin yöneticilik yetkisi alındıysa, onun medya izinlerini kısıtla
+    try:
+        # Eski ve yeni durumu kontrol et
+        old_status = cmu.old_chat_member.status if cmu.old_chat_member else None
+        new_status = cmu.new_chat_member.status if cmu.new_chat_member else None
+        
+        # Eğer yöneticilikten çıkarıldıysa (ADMINISTRATOR -> MEMBER)
+        if (old_status == ChatMemberStatus.ADMINISTRATOR and 
+            new_status == ChatMemberStatus.MEMBER):
+            
+            user_id = cmu.new_chat_member.user.id
+            chat_id = cmu.chat.id
+            
+            print(f"⚠️ {user_id} kullanıcısının {chat_id} grubunda yetkisi alındı, izinler kısıtlanıyor...")
+            
+            # Medya izinlerini kısıtla
+            izin_kisitla = ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=False,      # Medya yasak
+                can_send_other_messages=False,       # Çıkartma, GIF yasak
+                can_send_polls=False,
+                can_add_web_page_previews=False,
+                can_change_info=False,
+                can_invite_users=False,
+                can_pin_messages=False
+            )
+            
+            try:
+                await app.restrict_chat_member(chat_id, user_id, izin_kisitla)
+                print(f"✅ {user_id} kullanıcısının medya izinleri kısıtlandı")
+                
+                # İzin süresini de sıfırla (varsa)
+                izin_key = (chat_id, user_id)
+                if izin_key in izin_sureleri:
+                    izin_sureleri.pop(izin_key)
+                    save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+                    print(f"✅ {user_id} kullanıcısının izin süresi sıfırlandı")
+                    
+            except Exception as e:
+                print(f"❌ İzin kısıtlama hatası: {e}")
+    
+    except Exception as e:
+        print(f"Chat member update hatası: {e}")
+
+@app.on_message(filters.command("reload"))
+async def manual_sync(_, msg: Message):
+    """Manuel senkronizasyon komutu"""
+    if await is_user_authorized(app, msg.chat.id, msg.from_user.id):
+        await sync_bot_admins_with_telegram(app, msg.chat.id)
+        await msg.reply("✅ Admin listesi güncellendi.")
+
 # ================= NSFW TESPİT =================
 # Buradan sonraki NSFW, sticker, GIF analiz kodları değişmeden kalabilir.
 # ... (NSFW kodlarının geri kalanı buraya gelecek)
@@ -1159,5 +1321,25 @@ async def yeni_katilim(_, cmu: ChatMemberUpdated):
 # ---------- BAŞLANGIÇ ----------
 print("🚀 Bot başlatılıyor...")
 load_global_score()
-app.run()
+
+# Botu başlat ve startup görevlerini çalıştır
+app.start()
+print("✅ Bot başlatıldı")
+
+# Startup görevlerini çalıştır
+import asyncio
+
+async def run_startup_tasks():
+    await startup_tasks()
+
+# Async görevleri çalıştır
+loop = asyncio.get_event_loop()
+loop.run_until_complete(run_startup_tasks())
+
+# Botu çalışır durumda tut (idle)
+from pyrogram import idle
+idle()
+
+# Botu durdur
+app.stop()
 print("⏹️ Bot durduruldu.")
