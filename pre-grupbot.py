@@ -525,10 +525,11 @@ async def buton(_, cb: CallbackQuery):
         )
         await cb.answer("Bot özellikleri gösteriliyor")
 
+# >>>>>>>>>>>>>>>>>>>>>>>>>> PATCH 1 (UNION) <<<<<<<<<<<<<<<<<<<<<<<<<<
 async def sync_bot_admins_with_telegram(client, chat_id):
-    """Botun admin listesini Telegram grup adminleri ile senkronize eder"""
+    """Telegram adminlerini çek, mevcut bot-admin setiyle BİRLEŞTİR (union)."""
     try:
-        # Önce botun o grupta olup olmadığını kontrol et
+        # Bot grupta mı?
         try:
             await client.get_chat(chat_id)
         except Exception:
@@ -539,22 +540,20 @@ async def sync_bot_admins_with_telegram(client, chat_id):
         telegram_admins = set()
         try:
             async for member in client.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS):
-                if not member.user.is_bot and member.user.id != admin_id:
-                    telegram_admins.add(member.user.id)
+                telegram_admins.add(int(member.user.id))
         except Exception as e:
             print(f"⚠️ Admin listesi alınamadı {chat_id}: {e}")
             return
         
-        # Owner'ı da ekle (eğer alabilirse)
-        try:
-            chat = await client.get_chat(chat_id)
-            if hasattr(chat, 'id'):
-                telegram_admins.add(chat.id)
-        except:
-            pass
+        # Mevcut özel bot-admin seti
+        existing = group_admins.get(chat_id, set())
+        if not isinstance(existing, set):
+            existing = set(existing or [])
         
-        # Botun admin listesini güncelle
-        group_admins[chat_id] = telegram_admins
+        # OWNER her zaman sette; BİRLEŞTİR
+        merged = set(existing) | telegram_admins | {int(admin_id)}
+        
+        group_admins[chat_id] = merged
         save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
         
     except Exception as e:
@@ -589,15 +588,39 @@ async def startup_tasks():
     print("✅ Otomatik senkronizasyon başlatıldı")
 
 
+# >>>>>>>>>>>>>>>>>>>>>>>>>> PATCH 2 (/yetkial temizliği) <<<<<<<<<<<<<<<<<<<<<<<<<<
 async def remove_group_admin(chat_id: int, user_id: int):
     await ensure_group_admin_bucket(chat_id)
     if user_id in group_admins[chat_id]:
         group_admins[chat_id].remove(user_id)
         save_json(ADMINS_FILE, {str(k): list(v) for k, v in group_admins.items()})
         
-        # Bot-admin listesinden çıkarılanın izinlerini de kısıtla
         print(f"⚠️ {user_id} kullanıcısı bot-admin listesinden çıkarıldı, izinler kısıtlanıyor...")
+
+    # İzin penceresi + sayaç + seviye reset
+    try:
+        izin_key = (chat_id, user_id)
+        if izin_key in izin_sureleri:
+            izin_sureleri.pop(izin_key)
         
+        key_str = f"({chat_id}, {user_id})"
+        if key_str in user_data:
+            user_data[key_str]["seviye"] = 0
+            user_data[key_str]["grant_count"] = 0
+            user_data[key_str]["date"] = str(datetime.now().date())
+
+        if (chat_id, user_id) in user_msg_count:
+            user_msg_count[(chat_id, user_id)] = 0
+
+        save_json(USERDATA_FILE, convert_keys_to_str(user_data))
+        save_json(COUNTS_FILE, convert_keys_to_str(user_msg_count))
+        save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+        print(f"✅ {user_id} için izin/sayaç/seviye sıfırlandı")
+    except Exception as e:
+        print(f"❌ remove_group_admin cleanup hatası: {e}")
+
+    # Telegram tarafında medya/diğer mesaj izinlerini kapat
+    try:
         izin_kisitla = ChatPermissions(
             can_send_messages=True,
             can_send_media_messages=False,
@@ -608,19 +631,10 @@ async def remove_group_admin(chat_id: int, user_id: int):
             can_invite_users=False,
             can_pin_messages=False
         )
-        
-        try:
-            await app.restrict_chat_member(chat_id, user_id, izin_kisitla)
-            print(f"✅ {user_id} kullanıcısının medya izinleri kısıtlandı")
-            
-            # İzin süresini de sıfırla
-            izin_key = (chat_id, user_id)
-            if izin_key in izin_sureleri:
-                izin_sureleri.pop(izin_key)
-                save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
-                
-        except Exception as e:
-            print(f"❌ İzin kısıtlama hatası: {e}")
+        await app.restrict_chat_member(chat_id, user_id, izin_kisitla)
+        print(f"✅ {user_id} kullanıcısının medya izinleri kısıtlandı")
+    except Exception as e:
+        print(f"❌ İzin kısıtlama hatası: {e}")
 
 @app.on_chat_member_updated()
 async def on_chat_member_update(_, cmu: ChatMemberUpdated):
@@ -680,6 +694,34 @@ async def manual_sync(_, msg: Message):
     """Manuel senkronizasyon komutu"""
     if await is_user_authorized(app, msg.chat.id, msg.from_user.id):
         await sync_bot_admins_with_telegram(app, msg.chat.id)
+        # --- BOT-ADMIN'LERİ TOPTAN UNRESTRICT ET ---
+        try:
+            admins = group_admins.get(msg.chat.id, set())
+            for uid in admins:
+                if uid == admin_id:
+                    continue
+                try:
+                    await app.restrict_chat_member(
+                        msg.chat.id,
+                        uid,
+                        ChatPermissions(
+                            can_send_messages=True,
+                            can_send_media_messages=True,
+                            can_send_other_messages=True,  # sticker/GIF
+                            can_send_polls=True,
+                            can_add_web_page_previews=True,
+                            can_change_info=False,
+                            can_invite_users=True,
+                            can_pin_messages=False
+                        )
+                    )
+                    # varsa süreli izin penceresini temizle
+                    izin_sureleri.pop((msg.chat.id, uid), None)
+                except Exception as e:
+                    print("reload izin açma hatası:", e)
+            save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+        except Exception as e:
+            print("reload admin liste hatası:", e)
         await msg.reply("✅ Admin listesi güncellendi.")
 
 # ================= NSFW TESPİT =================
@@ -1158,6 +1200,34 @@ async def add_admin_cmd(_, msg: Message):
         else:
             return await msg.reply("⚠️ Yanıtla veya kullanıcı adı gir.")
         await add_group_admin(msg.chat.id, target_id)
+        # --- BOT-ADMIN'LERİ TOPTAN UNRESTRICT ET ---
+        try:
+            admins = group_admins.get(msg.chat.id, set())
+            for uid in admins:
+                if uid == admin_id:
+                    continue
+                try:
+                    await app.restrict_chat_member(
+                        msg.chat.id,
+                        uid,
+                        ChatPermissions(
+                            can_send_messages=True,
+                            can_send_media_messages=True,
+                            can_send_other_messages=True,  # sticker/GIF
+                            can_send_polls=True,
+                            can_add_web_page_previews=True,
+                            can_change_info=False,
+                            can_invite_users=True,
+                            can_pin_messages=False
+                        )
+                    )
+                    # varsa süreli izin penceresini temizle
+                    izin_sureleri.pop((msg.chat.id, uid), None)
+                except Exception as e:
+                    print("reload izin açma hatası:", e)
+            save_json(IZIN_FILE, convert_keys_to_str(izin_sureleri))
+        except Exception as e:
+            print("reload admin liste hatası:", e)
         await msg.reply(f"✅ {target_id} bu grup için bot-admin yapıldı.")
     except Exception as e: await msg.reply(f"❌ Hata: {e}")
 
